@@ -1,0 +1,40 @@
+2025-09-30 00:08:46 - INFO - root - <module> - 6 - Logger is working!
+2025-09-30 00:17:05,587 INFO     SectorRotationStrategy Setup successful
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:13 - === DAY 1 SETUP TEST STARTED ===
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:16 - Strategy Name: Systematic Sector Rotation
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:17 - Version: 1.0.0
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:18 - Base Directory: C:\Users\swaga\OneDrive\Desktop\systematic_sector_rotation
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:19 - Data Directory: C:\Users\swaga\OneDrive\Desktop\systematic_sector_rotation\data
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:20 - Log Directory: C:\Users\swaga\OneDrive\Desktop\systematic_sector_rotation\logs
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:21 - Database Directory: C:\Users\swaga\OneDrive\Desktop\systematic_sector_rotation\database
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:24 - Data directory exists: True
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:25 - Log directory exists: True
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:26 - Database directory exists: True
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:29 - Sector Allocation: 0.6
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:30 - Stock Allocation: 0.4
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:31 - Top Sectors Count: 3
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:32 - Rebalancing Frequency: MONTHLY
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:35 - Total NSE Sectors Configured: 17
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:36 - Sample Sectors: ['Nifty Auto', 'Nifty Bank', 'Nifty Energy']
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:39 - Initial Capital: ₹1,000,000
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:40 - Transaction Cost: 0.1%
+2025-09-30 00:43:32 - INFO - __main__ - test_setup:42 - === DAY 1 SETUP TEST COMPLETED SUCCESSFULLY ===
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:13 - === DAY 1 SETUP TEST STARTED ===
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:16 - Strategy Name: Systematic Sector Rotation
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:17 - Version: 1.0.0
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:18 - Base Directory: C:\Users\swaga\OneDrive\Desktop\systematic_sector_rotation
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:19 - Data Directory: C:\Users\swaga\OneDrive\Desktop\systematic_sector_rotation\data
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:20 - Log Directory: C:\Users\swaga\OneDrive\Desktop\systematic_sector_rotation\logs
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:21 - Database Directory: C:\Users\swaga\OneDrive\Desktop\systematic_sector_rotation\database
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:24 - Data directory exists: True
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:25 - Log directory exists: True
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:26 - Database directory exists: True
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:29 - Sector Allocation: 0.6
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:30 - Stock Allocation: 0.4
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:31 - Top Sectors Count: 3
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:32 - Rebalancing Frequency: MONTHLY
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:35 - Total NSE Sectors Configured: 17
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:36 - Sample Sectors: ['Nifty Auto', 'Nifty Bank', 'Nifty Energy']
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:39 - Initial Capital: ₹1,000,000
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:40 - Transaction Cost: 0.1%
+2025-09-30 00:50:38 - INFO - __main__ - test_setup:42 - === DAY 1 SETUP TEST COMPLETED SUCCESSFULLY ===
