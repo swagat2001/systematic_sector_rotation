@@ -54,6 +54,27 @@ def calculate_sharpe_ratio(returns: pd.Series, risk_free_rate: float = 0.06) -> 
     excess_returns = returns - (risk_free_rate / 252)  # Daily risk-free rate
     return np.sqrt(252) * excess_returns.mean() / excess_returns.std()
 
+def calculate_cagr(initial_value: float, final_value: float, years: float) -> float:
+    """
+    Calculate Compound Annual Growth Rate (CAGR)
+    
+    Args:
+        initial_value: Starting value
+        final_value: Ending value
+        years: Number of years
+        
+    Returns:
+        float: CAGR as percentage
+    """
+    if initial_value <= 0 or final_value <= 0 or years <= 0:
+        return 0.0
+    
+    try:
+        cagr = ((final_value / initial_value) ** (1 / years) - 1) * 100
+        return cagr
+    except (ValueError, ZeroDivisionError):
+        return 0.0
+
 def calculate_max_drawdown(prices: pd.Series) -> float:
     """
     Calculate maximum drawdown from price series
