@@ -54,13 +54,21 @@ class ChartGenerator:
         Create equity curve chart
         
         Args:
-            daily_values: Portfolio values over time
+            daily_values: Portfolio values over time (Series or DataFrame)
             benchmark_values: Benchmark values for comparison
             title: Chart title
         
         Returns:
             Plotly figure
         """
+        # Handle DataFrame input - extract numeric column
+        if isinstance(daily_values, pd.DataFrame):
+            numeric_cols = daily_values.select_dtypes(include=[np.number]).columns
+            if len(numeric_cols) > 0:
+                daily_values = daily_values[numeric_cols[0]]
+            else:
+                daily_values = daily_values.iloc[:, -1]  # Last column
+        
         fig = go.Figure()
         
         # Portfolio line
@@ -101,12 +109,20 @@ class ChartGenerator:
         Create drawdown chart
         
         Args:
-            daily_values: Portfolio values over time
+            daily_values: Portfolio values over time (Series or DataFrame)
             title: Chart title
         
         Returns:
             Plotly figure
         """
+        # Handle DataFrame input - extract numeric column
+        if isinstance(daily_values, pd.DataFrame):
+            numeric_cols = daily_values.select_dtypes(include=[np.number]).columns
+            if len(numeric_cols) > 0:
+                daily_values = daily_values[numeric_cols[0]]
+            else:
+                daily_values = daily_values.iloc[:, -1]  # Last column
+        
         # Calculate drawdown
         running_max = daily_values.expanding().max()
         drawdown = (daily_values - running_max) / running_max * 100

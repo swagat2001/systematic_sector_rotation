@@ -1,0 +1,16 @@
+# NSE Data Scraping Dependencies
+
+# Core libraries
+pandas>=2.0.0
+numpy>=1.24.0
+sqlalchemy>=2.0.0
+
+# NSE data sources
+nsepy>=0.8  # NSE official data
+yfinance>=0.2.28  # Yahoo Finance fallback
+requests>=2.31.0  # Direct scraping
+beautifulsoup4>=4.12.0  # HTML parsing
+lxml>=4.9.0  # XML parsing
+
+# Utilities
+python-dateutil>=2.8.2

@@ -23,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dashboard.chart_generator import ChartGenerator
+from dashboard.real_data_backtest import render_real_data_backtest
 from backtesting.backtest_engine import BacktestEngine
 from backtesting.performance_analyzer import PerformanceAnalyzer
 from strategy.portfolio_manager import PortfolioManager
@@ -86,6 +87,8 @@ class Dashboard:
             self.render_overview()
         elif page == 'Backtest':
             self.render_backtest()
+        elif page == 'Real Data Backtest':
+            render_real_data_backtest()
         elif page == 'Portfolio':
             self.render_portfolio()
         elif page == 'Performance':
@@ -103,7 +106,7 @@ class Dashboard:
         # Navigation
         page = st.sidebar.radio(
             "Navigation",
-            ['Overview', 'Backtest', 'Portfolio', 'Performance', 'About'],
+            ['Overview', 'Backtest', 'Real Data Backtest', 'Portfolio', 'Performance', 'About'],
             key='page'
         )
         
@@ -112,9 +115,12 @@ class Dashboard:
         # Quick stats
         st.sidebar.subheader("Quick Stats")
         
-        if st.session_state.analysis:
-            returns = st.session_state.analysis.get('returns', {})
-            risk = st.session_state.analysis.get('risk', {})
+        # Check for both regular and real data backtest results
+        analysis = st.session_state.get('analysis') or st.session_state.get('real_backtest_analysis')
+        
+        if analysis:
+            returns = analysis.get('returns', {})
+            risk = analysis.get('risk', {})
             
             st.sidebar.metric(
                 "CAGR",
@@ -126,7 +132,7 @@ class Dashboard:
             )
             st.sidebar.metric(
                 "Max Drawdown",
-                f"{st.session_state.analysis.get('drawdown', {}).get('max_drawdown', 0):.2f}%"
+                f"{analysis.get('drawdown', {}).get('max_drawdown', 0):.2f}%"
             )
         else:
             st.sidebar.info("Run a backtest to see stats")
@@ -399,12 +405,15 @@ class Dashboard:
         st.markdown('<p class="main-header">Performance Analysis</p>', 
                    unsafe_allow_html=True)
         
-        if not st.session_state.analysis:
+        # Check for both regular and real data backtest results
+        analysis = st.session_state.get('analysis') or st.session_state.get('real_backtest_analysis')
+        result = st.session_state.get('backtest_result') or st.session_state.get('real_backtest_result')
+        
+        if not analysis:
             st.warning("⚠️ No backtest results available. Run a backtest first.")
             return
         
-        analysis = st.session_state.analysis
-        result = st.session_state.backtest_result
+        # Use the found results
         
         # Rolling Sharpe
         st.subheader("Rolling Sharpe Ratio (1Y)")
