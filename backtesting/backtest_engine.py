@@ -113,6 +113,7 @@ class BacktestEngine:
             logger.info(f"Rebalancing dates: {len(rebalance_dates)} months")
             
             # Run monthly rebalancing loop
+            last_portfolio = {}
             for i, rebal_date in enumerate(rebalance_dates):
                 logger.info(f"\n{'=' * 60}")
                 logger.info(f"Rebalancing {i+1}/{len(rebalance_dates)}: {rebal_date.date()}")
@@ -137,6 +138,9 @@ class BacktestEngine:
                 if not rebal_result['success']:
                     logger.error(f"Rebalancing failed: {rebal_result.get('error')}")
                     continue
+                
+                # Store the portfolio for later use
+                last_portfolio = rebal_result.get('portfolio', {})
                 
                 # Get current prices for execution
                 current_prices = self._get_current_prices(
@@ -194,7 +198,9 @@ class BacktestEngine:
                 'final_value': self.equity_curve[-1]['value'] if self.equity_curve else self.initial_capital,
                 'equity_curve': self.equity_curve,
                 'portfolio_snapshots': self.portfolio_snapshots,
-                'daily_values': self.daily_values
+                'daily_values': self.daily_values,
+                'final_portfolio': self.portfolio_snapshots[-1]['positions'] if self.portfolio_snapshots else {},
+                'portfolio': last_portfolio
             }
             
             logger.info("\n" + "=" * 80)
