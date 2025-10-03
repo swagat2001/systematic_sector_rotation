@@ -36,10 +36,10 @@ class StockSelectionEngine:
         self.config = Config()
         self.scorer = CompositeScorer()
         
-        # Strategy parameters
-        self.stock_allocation = Config.STOCK_ALLOCATION  # 40%
-        self.top_percentile = Config.TOP_PERCENTILE  # Top 10% (decile)
-        self.hysteresis_period = Config.HYSTERESIS_PERIOD  # 2 months
+        # Strategy parameters (from new dual-approach config)
+        self.stock_allocation = Config.SATELLITE_ALLOCATION  # 40%
+        self.top_percentile = Config.SATELLITE_CONFIG.get('top_stocks', 15)  # Top N stocks
+        self.hysteresis_period = 60  # 2 months in days
         
         # Liquidity filters
         self.min_daily_volume = 1_000_000  # 10 Lakh shares

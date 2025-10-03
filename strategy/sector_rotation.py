@@ -34,15 +34,17 @@ class SectorRotationEngine:
     def __init__(self):
         self.config = Config()
         
-        # Strategy parameters
-        self.top_k = Config.TOP_SECTORS_COUNT  # Default: 3 sectors
-        self.momentum_period = Config.MOMENTUM_PERIOD  # 6 months (126 days)
-        self.tiebreaker_period = Config.TIEBREAKER_PERIOD  # 1 month (21 days)
-        self.use_ma_filter = True  # Optional 200-day MA filter
-        
-        # Allocation
-        self.sector_allocation = Config.SECTOR_ALLOCATION  # 60%
+        # Core allocation parameters (60%)
+        self.top_k = Config.CORE_CONFIG['top_sectors']  # Default: 3 sectors
+        self.sector_allocation = Config.CORE_ALLOCATION  # 60%
         self.weight_per_sector = self.sector_allocation / self.top_k  # 20% each
+        
+        # Momentum configuration
+        self.momentum_config = Config.CORE_CONFIG['momentum_periods']
+        
+        # Trend confirmation
+        self.trend_config = Config.CORE_CONFIG['trend_confirmation']
+        self.use_trend_filter = self.trend_config['enabled']
         
         # Track current selections
         self.current_sectors = []
@@ -82,35 +84,38 @@ class SectorRotationEngine:
                 
                 prices = price_data['Close']
                 
-                # Calculate 6-month momentum (primary ranking)
-                momentum_6m = self._calculate_sector_momentum(
-                    prices, 
-                    period=self.momentum_period
+                # Calculate multi-period momentum (1m, 3m, 6m)
+                momentum_scores = {}
+                for period_name, period_config in self.momentum_config.items():
+                    days = period_config['days']
+                    weight = period_config['weight']
+                    momentum = self._calculate_sector_momentum(prices, period=days)
+                    momentum_scores[period_name] = {
+                        'value': momentum,
+                        'weight': weight
+                    }
+                
+                # Composite momentum score (weighted average)
+                composite_score = sum(
+                    momentum_scores[p]['value'] * momentum_scores[p]['weight']
+                    for p in momentum_scores
                 )
                 
-                # Calculate 1-month momentum (tiebreaker)
-                momentum_1m = self._calculate_sector_momentum(
-                    prices,
-                    period=self.tiebreaker_period
-                )
-                
-                # Check 200-day MA filter if enabled
-                ma_filter_pass = True
-                if self.use_ma_filter:
-                    ma_filter_pass = self._check_ma_filter(prices)
-                
-                # Composite score: 6-month momentum + small tiebreaker weight
-                # Tiebreaker weight: 10% of score to maintain precision
-                composite_score = momentum_6m + (0.1 * momentum_1m)
+                # Trend confirmation filter
+                trend_confirmed = True
+                trend_strength = 0.0
+                if self.use_trend_filter:
+                    trend_confirmed, trend_strength = self._check_trend_confirmation(prices)
                 
                 results.append({
                     'sector': sector_name,
-                    'momentum_6m': momentum_6m,
-                    'momentum_1m': momentum_1m,
+                    'momentum_1m': momentum_scores['1m']['value'],
+                    'momentum_3m': momentum_scores['3m']['value'],
+                    'momentum_6m': momentum_scores['6m']['value'],
                     'composite_score': composite_score,
-                    'ma_filter_pass': ma_filter_pass,
-                    'current_price': prices.iloc[-1],
-                    'price_6m_ago': prices.iloc[-self.momentum_period] if len(prices) >= self.momentum_period else None
+                    'trend_confirmed': trend_confirmed,
+                    'trend_strength': trend_strength,
+                    'current_price': prices.iloc[-1]
                 })
                 
             except Exception as e:
@@ -124,10 +129,10 @@ class SectorRotationEngine:
             logger.warning("No sectors ranked")
             return df
         
-        # Apply MA filter if enabled
-        if self.use_ma_filter:
-            df = df[df['ma_filter_pass'] == True].copy()
-            logger.info(f"MA filter applied: {len(df)} sectors pass")
+        # Apply trend confirmation filter if enabled
+        if self.use_trend_filter and self.trend_config['require_uptrend']:
+            df = df[df['trend_confirmed'] == True].copy()
+            logger.info(f"Trend filter applied: {len(df)} sectors pass")
         
         # Sort by composite score (descending)
         df.sort_values('composite_score', ascending=False, inplace=True)
@@ -278,33 +283,52 @@ class SectorRotationEngine:
             logger.error(f"Error calculating momentum: {e}")
             return 0.0
     
-    def _check_ma_filter(self, prices: pd.Series) -> bool:
+    def _check_trend_confirmation(self, prices: pd.Series) -> Tuple[bool, float]:
         """
-        Check if sector passes 200-day MA filter
+        Check if sector has confirmed uptrend using dual MA system
         
         Args:
             prices: Price series
         
         Returns:
-            True if price > 200-day MA, False otherwise
+            Tuple of (trend_confirmed: bool, trend_strength: float)
         """
-        if len(prices) < 200:
-            return True  # Pass if insufficient data
+        ma_fast_period = self.trend_config['ma_fast']
+        ma_slow_period = self.trend_config['ma_slow']
+        min_strength = self.trend_config['min_trend_strength']
+        
+        if len(prices) < ma_slow_period:
+            return True, 0.0  # Pass if insufficient data
         
         try:
-            ma_200 = calculate_moving_average(prices, 200)
+            # Calculate moving averages
+            ma_fast = calculate_moving_average(prices, ma_fast_period)
+            ma_slow = calculate_moving_average(prices, ma_slow_period)
             
-            if ma_200.empty:
-                return True
+            if ma_fast.empty or ma_slow.empty:
+                return True, 0.0
             
             current_price = prices.iloc[-1]
-            current_ma = ma_200.iloc[-1]
+            current_ma_fast = ma_fast.iloc[-1]
+            current_ma_slow = ma_slow.iloc[-1]
             
-            return current_price > current_ma
+            # Trend confirmed if:
+            # 1. Price > MA_fast > MA_slow (golden cross)
+            # 2. Price is at least min_strength above MA_slow
+            
+            trend_strength = (current_price / current_ma_slow) - 1.0
+            
+            trend_confirmed = (
+                current_price > current_ma_fast and
+                current_ma_fast > current_ma_slow and
+                trend_strength >= min_strength
+            )
+            
+            return trend_confirmed, trend_strength
             
         except Exception as e:
-            logger.error(f"Error checking MA filter: {e}")
-            return True  # Pass on error
+            logger.error(f"Error checking trend confirmation: {e}")
+            return True, 0.0  # Pass on error
     
     def get_current_allocation(self) -> Dict:
         """
@@ -335,23 +359,23 @@ class SectorRotationEngine:
         report += f"{'=' * 80}\n\n"
         
         report += f"Strategy Parameters:\n"
+        report += f"  Core Allocation: {self.sector_allocation:.0%}\n"
         report += f"  Top K Sectors: {self.top_k}\n"
-        report += f"  Momentum Period: {self.momentum_period} days (6 months)\n"
-        report += f"  Tiebreaker Period: {self.tiebreaker_period} days (1 month)\n"
-        report += f"  MA Filter: {'Enabled' if self.use_ma_filter else 'Disabled'}\n"
+        report += f"  Momentum Periods: 1M({self.momentum_config['1m']['weight']:.0%}), 3M({self.momentum_config['3m']['weight']:.0%}), 6M({self.momentum_config['6m']['weight']:.0%})\n"
+        report += f"  Trend Filter: {'Enabled' if self.use_trend_filter else 'Disabled'}\n"
         report += f"  Weight per Sector: {self.weight_per_sector:.1%}\n\n"
         
         if not rankings_df.empty:
             report += f"SECTOR RANKINGS:\n"
             report += f"{'-' * 80}\n"
-            report += f"{'Rank':<6}{'Sector':<30}{'6M Mom':<12}{'1M Mom':<12}{'Score':<12}{'Filter':<8}\n"
+            report += f"{'Rank':<6}{'Sector':<30}{'1M':<10}{'3M':<10}{'6M':<10}{'Score':<10}{'Trend':<8}\n"
             report += f"{'-' * 80}\n"
             
             for _, row in rankings_df.head(10).iterrows():
                 report += f"{row['rank']:<6}{row['sector']:<30}"
-                report += f"{row['momentum_6m']:<12.2%}{row['momentum_1m']:<12.2%}"
-                report += f"{row['composite_score']:<12.4f}"
-                report += f"{'PASS' if row['ma_filter_pass'] else 'FAIL':<8}\n"
+                report += f"{row['momentum_1m']:<10.2%}{row['momentum_3m']:<10.2%}{row['momentum_6m']:<10.2%}"
+                report += f"{row['composite_score']:<10.4f}"
+                report += f"{'✓' if row['trend_confirmed'] else '✗':<8}\n"
             
             report += f"{'-' * 80}\n\n"
         

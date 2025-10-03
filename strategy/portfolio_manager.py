@@ -42,13 +42,15 @@ class PortfolioManager:
         self.sector_engine = SectorRotationEngine()
         self.stock_engine = StockSelectionEngine()
         
-        # Portfolio allocation
-        self.sector_allocation = Config.SECTOR_ALLOCATION  # 60%
-        self.stock_allocation = Config.STOCK_ALLOCATION  # 40%
+        # Portfolio allocation (NEW CONFIG STRUCTURE)
+        self.sector_allocation = Config.CORE_ALLOCATION  # 60%
+        self.stock_allocation = Config.SATELLITE_ALLOCATION  # 40%
         
-        # Risk limits
-        self.max_position_size = Config.MAX_POSITION_SIZE  # 5% per position
-        self.max_sector_exposure = Config.MAX_SECTOR_EXPOSURE  # 25% per sector
+        # Risk limits (with fallbacks for old config)
+        self.max_position_size = getattr(Config, 'MAX_POSITION_SIZE', 
+                                         Config.RISK_CONFIG.get('max_position_size', 0.10))
+        self.max_sector_exposure = getattr(Config, 'MAX_SECTOR_EXPOSURE',
+                                           Config.RISK_CONFIG.get('max_sector_exposure', 0.30))
         
         # Current portfolio state
         self.current_portfolio = {}
