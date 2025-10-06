@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
 from config import Config
-from strategy.portfolio_manager import PortfolioManager
+from strategy.dual_approach_portfolio import DualApproachPortfolioManager
 from execution.paper_trading import PaperTradingEngine
 from utils.logger import setup_logger
 from utils.helpers import calculate_returns, calculate_cagr
@@ -49,7 +49,7 @@ class BacktestEngine:
         self.config = Config()
         
         # Portfolio and execution engines
-        self.portfolio_manager = PortfolioManager()
+        self.portfolio_manager = DualApproachPortfolioManager()
         self.paper_trader = PaperTradingEngine(initial_capital)
         
         # Backtest parameters
@@ -87,7 +87,7 @@ class BacktestEngine:
             stocks_prices: Historical stock prices
             benchmark_data: Benchmark prices for comparison
             sector_mapping: Stock-to-sector mapping
-        
+            
         Returns:
             Dict with backtest results
         """
@@ -106,7 +106,7 @@ class BacktestEngine:
             
             # Generate rebalancing dates (monthly)
             rebalance_dates = self._generate_rebalance_dates(
-                self.start_date, 
+                self.start_date,
                 self.end_date
             )
             
@@ -128,20 +128,48 @@ class BacktestEngine:
                 
                 # Run portfolio rebalancing
                 rebal_result = self.portfolio_manager.rebalance_portfolio(
-                    sector_data_slice,
-                    stocks_data_slice,
-                    stocks_prices_slice,
-                    benchmark_slice,
-                    sector_mapping,
-                    as_of_date=rebal_date
+                    sector_data_slice,      # sector_prices
+                    stocks_data_slice,      # stocks_data
+                    stocks_prices_slice,    # stocks_prices
+                    as_of_date=rebal_date   # as_of_date
                 )
                 
                 if not rebal_result['success']:
                     logger.error(f"Rebalancing failed: {rebal_result.get('error')}")
                     continue
                 
-                # Store the portfolio for later use
-                last_portfolio = rebal_result.get('portfolio', {})
+                # ==================== FIX: Pass WEIGHTS, not CAPITAL ====================
+                # Build combined portfolio with WEIGHTS (0-1), not capital amounts
+                # Paper trading engine expects weights and will multiply by portfolio value
+                
+                combined_portfolio = {}
+                
+                # Option 1: Use the combined_positions from rebalance_portfolio result
+                # This already has the correct format with weights
+                if 'combined_positions' in rebal_result:
+                    for symbol, position_data in rebal_result['combined_positions'].items():
+                        # position_data = {'weight': 0.071, 'sector': 'Nifty IT', 'allocation_type': 'core'}
+                        combined_portfolio[symbol] = position_data['weight']  # ✓ Keep as weight (0-1)
+                else:
+                    # Option 2: Manually combine core and satellite (fallback)
+                    if 'core' in rebal_result and 'positions' in rebal_result['core']:
+                        for symbol, position_data in rebal_result['core']['positions'].items():
+                            combined_portfolio[symbol] = combined_portfolio.get(symbol, 0) + position_data['weight']
+                    
+                    if 'satellite' in rebal_result and 'positions' in rebal_result['satellite']:
+                        for symbol, position_data in rebal_result['satellite']['positions'].items():
+                            combined_portfolio[symbol] = combined_portfolio.get(symbol, 0) + position_data['weight']
+                
+                # Validate weights sum to ~1.0
+                total_weight = sum(combined_portfolio.values())
+                if abs(total_weight - 1.0) > 0.05:  # 5% tolerance
+                    logger.warning(f"Portfolio weights sum to {total_weight*100:.1f}%, not 100%")
+                
+                logger.info(f"Combined portfolio: {len(combined_portfolio)} positions, total weight: {total_weight*100:.1f}%")
+                # =============================================================================
+                
+                # Store for later use
+                last_portfolio = combined_portfolio
                 
                 # Get current prices for execution
                 current_prices = self._get_current_prices(
@@ -151,8 +179,9 @@ class BacktestEngine:
                 )
                 
                 # Execute trades in paper trading
+                # paper_trader.rebalance_portfolio expects weights (0-1)
                 execution_result = self.paper_trader.rebalance_portfolio(
-                    rebal_result['portfolio'],
+                    combined_portfolio,  # Dict[symbol, weight] where weight is 0-1
                     current_prices,
                     rebal_date
                 )
@@ -182,7 +211,7 @@ class BacktestEngine:
                     self._calculate_daily_values(
                         rebal_date,
                         next_rebal,
-                        rebal_result['portfolio'],
+                        combined_portfolio,
                         stocks_prices,
                         sector_prices
                     )
@@ -201,7 +230,7 @@ class BacktestEngine:
                 'portfolio_snapshots': self.portfolio_snapshots,
                 'daily_values': self.daily_values,
                 'final_portfolio': self.portfolio_snapshots[-1]['positions'] if self.portfolio_snapshots else {},
-                'portfolio': last_portfolio
+                'portfolio': last_portfolio  # Add for backward compatibility
             }
             
             logger.info("\n" + "=" * 80)
@@ -249,8 +278,8 @@ class BacktestEngine:
             return datetime.now() - timedelta(days=365)
         
         earliest = min(dates)
-        # Start from at least 1 year in to have lookback data
-        return earliest + timedelta(days=252)
+        # Start from at least 6 months in to have lookback data
+        return earliest + timedelta(days=126)  # 6 months
     
     def _generate_rebalance_dates(self, start: datetime, end: datetime) -> List[datetime]:
         """Generate monthly rebalancing dates"""
@@ -263,17 +292,15 @@ class BacktestEngine:
         
         return dates
     
-    def _slice_data_to_date(self, data_dict: Dict[str, pd.DataFrame], 
-                            date: datetime) -> Dict[str, pd.DataFrame]:
+    def _slice_data_to_date(self, data_dict: Dict[str, pd.DataFrame],
+                           date: datetime) -> Dict[str, pd.DataFrame]:
         """Slice all dataframes up to date"""
         sliced = {}
-        
         for symbol, df in data_dict.items():
             if df.empty:
                 sliced[symbol] = df
             else:
                 sliced[symbol] = df[df.index <= date]
-        
         return sliced
     
     def _slice_data_to_date_single(self, df: pd.DataFrame, date: datetime) -> pd.DataFrame:
@@ -307,9 +334,9 @@ class BacktestEngine:
         return prices
     
     def _calculate_daily_values(self, start_date: datetime, end_date: datetime,
-                                portfolio: Dict[str, float],
-                                stocks_prices: Dict[str, pd.DataFrame],
-                                sector_prices: Dict[str, pd.DataFrame]):
+                               portfolio: Dict[str, float],
+                               stocks_prices: Dict[str, pd.DataFrame],
+                               sector_prices: Dict[str, pd.DataFrame]):
         """Calculate daily portfolio values between rebalancing"""
         # Get all trading days in period
         all_dates = set()
@@ -350,7 +377,7 @@ class BacktestEngine:
         if benchmark_data is not None and not benchmark_data.empty:
             # Align benchmark to our dates
             benchmark_slice = benchmark_data[
-                (benchmark_data.index >= self.start_date) & 
+                (benchmark_data.index >= self.start_date) &
                 (benchmark_data.index <= self.end_date)
             ]
             
@@ -404,51 +431,3 @@ class BacktestEngine:
         report += f"{'=' * 80}\n"
         
         return report
-
-
-if __name__ == "__main__":
-    # Test backtest engine
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    
-    # Generate sample data
-    dates = pd.date_range(start='2020-01-01', end='2024-01-01', freq='B')
-    
-    test_sectors = {}
-    for sector in ['Nifty IT', 'Nifty Bank', 'Nifty Auto']:
-        prices = 1000 * (1 + pd.Series(np.random.randn(len(dates)) * 0.01 + 0.0003).cumsum())
-        test_sectors[sector] = pd.DataFrame({
-            'Close': prices.values,
-            'Volume': 10000000
-        }, index=dates)
-    
-    test_stocks = {}
-    test_fundamentals = {}
-    for symbol in ['INFY', 'TCS', 'WIPRO']:
-        prices = 1000 * (1 + pd.Series(np.random.randn(len(dates)) * 0.015 + 0.0005).cumsum())
-        test_stocks[symbol] = pd.DataFrame({
-            'Close': prices.values,
-            'Volume': 5000000
-        }, index=dates)
-        
-        test_fundamentals[symbol] = {
-            'roe': 0.25,
-            'market_cap': 100000000000
-        }
-    
-    # Run backtest
-    engine = BacktestEngine(
-        initial_capital=1000000,
-        start_date=datetime(2021, 1, 1),
-        end_date=datetime(2023, 12, 31)
-    )
-    
-    result = engine.run_backtest(
-        test_sectors,
-        test_fundamentals,
-        test_stocks
-    )
-    
-    if result['success']:
-        print(engine.generate_backtest_report(result))

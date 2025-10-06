@@ -120,9 +120,13 @@ class PerformanceAnalyzer:
         # Total return
         total_return = (final / initial - 1) * 100
         
-        # CAGR
+        # CAGR (need at least 1 month of data)
         years = len(daily_values) / 252
-        cagr = calculate_cagr(initial, final, years)
+        if years < 0.08:  # Less than 1 month
+            cagr = 0.0
+            logger.warning(f"Insufficient data for CAGR calculation ({years:.2f} years)")
+        else:
+            cagr = calculate_cagr(initial, final, years)
         
         # Periodic returns
         daily_return = daily_returns.mean() * 100

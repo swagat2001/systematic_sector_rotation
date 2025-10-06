@@ -65,7 +65,8 @@ def render_real_data_backtest():
                 "Start Date",
                 value=max(min_date, max_date - timedelta(days=3*365)),
                 min_value=min_date,
-                max_value=max_date
+                max_value=max_date,
+                key="backtest_start_date"  # ✓ ADDED
             )
         
         with col2:
@@ -73,7 +74,8 @@ def render_real_data_backtest():
                 "End Date",
                 value=max_date,
                 min_value=min_date,
-                max_value=max_date
+                max_value=max_date,
+                key="backtest_end_date"  # ✓ ADDED
             )
         
         initial_capital = st.number_input(
@@ -141,7 +143,7 @@ def render_real_data_backtest():
                         # Store in session state
                         st.session_state.real_backtest_result = result
                         st.session_state.real_backtest_analysis = analysis
-                        
+                        st.session_state.stocks_data = stocks_data  # ✓ STORES SECTOR MAPPINGS
                         st.success("✅ Backtest completed with real data!")
                         
                     else:
@@ -167,18 +169,8 @@ def render_real_data_backtest():
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                # Safe access to total return
-                total_return = 0.0
-                if 'returns' in analysis and 'total_return' in analysis['returns']:
-                    total_return = analysis['returns']['total_return']
-                elif result.get('final_value') and result.get('initial_capital'):
-                    total_return = ((result['final_value'] / result['initial_capital']) - 1) * 100
-                
-                st.metric(
-                    "Total Return", 
-                    f"{total_return:.2f}%",
-                    delta=f"{total_return:.2f}%"
-                )
+                total_return = ((result.get('final_value', 0) / result.get('initial_capital', 1)) - 1) * 100
+                st.metric("Total Return", f"{total_return:.2f}%")
             
             with col2:
                 cagr = 0.0

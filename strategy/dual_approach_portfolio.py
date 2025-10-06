@@ -18,7 +18,6 @@ from config import Config
 from utils.logger import setup_logger
 from strategy.sector_rotation import SectorRotationEngine
 from strategy.stock_selection import StockSelectionEngine
-from strategy.implementation_mode import ImplementationModeHandler
 
 logger = setup_logger(__name__)
 
@@ -32,113 +31,91 @@ class DualApproachPortfolioManager:
         self.config = Config()
         
         # Allocation split
-        self.core_allocation = Config.CORE_ALLOCATION      # 60%
+        self.core_allocation = Config.CORE_ALLOCATION  # 60%
         self.satellite_allocation = Config.SATELLITE_ALLOCATION  # 40%
         
-        # Strategy engines
+        # Initialize strategy engines
         self.sector_engine = SectorRotationEngine()
         self.stock_selector = StockSelectionEngine()
-        self.implementation = ImplementationModeHandler()
         
-        logger.info(f"Implementation Mode: {self.implementation.mode}")
+        # Portfolio state
+        self.current_positions = {}
+        self.last_rebalance_date = None
         
-        # Current holdings
-        self.core_holdings = {}      # Sector-based stocks (60%)
-        self.satellite_holdings = {} # Alpha stocks (40%)
-        
-        # Capital tracking
-        self.total_capital = 0
-        self.core_capital = 0
-        self.satellite_capital = 0
-        
-        logger.info(f"DualApproachPortfolioManager initialized")
-        logger.info(f"Core: {self.core_allocation:.0%} | Satellite: {self.satellite_allocation:.0%}")
+        logger.info(f"Initialized DualApproachPortfolioManager")
+        logger.info(f"Core allocation: {self.core_allocation*100}%")
+        logger.info(f"Satellite allocation: {self.satellite_allocation*100}%")
     
-    def rebalance_portfolio(self,
-                           sector_prices: Dict[str, pd.DataFrame],
-                           stocks_data: Dict[str, Dict],
-                           stocks_prices: Dict[str, pd.DataFrame],
-                           total_capital: float,
-                           as_of_date: datetime = None) -> Dict:
+    def rebalance_portfolio(self, 
+                          sector_prices: Dict[str, pd.DataFrame],
+                          stocks_data: Dict[str, Dict],
+                          stocks_prices: Dict[str, pd.DataFrame],
+                          as_of_date: datetime) -> Dict:
         """
-        Execute full portfolio rebalance using dual-approach
+        Execute complete portfolio rebalancing
         
         Args:
-            sector_prices: Price data for sectors
-            stocks_data: Fundamental and metadata for stocks
-            stocks_prices: Price data for individual stocks
-            total_capital: Total portfolio capital
+            sector_prices: Dict of {sector_name: price_df}
+            stocks_data: Dict of {symbol: fundamental_data_dict}
+            stocks_prices: Dict of {symbol: price_df}
             as_of_date: Rebalancing date
-        
+            
         Returns:
-            Dict with rebalancing results and orders
+            Dict with rebalancing results
         """
-        logger.info("=" * 80)
-        logger.info("DUAL-APPROACH PORTFOLIO REBALANCING")
-        logger.info("=" * 80)
-        
-        self.total_capital = total_capital
-        self.core_capital = total_capital * self.core_allocation
-        self.satellite_capital = total_capital * self.satellite_allocation
-        
-        logger.info(f"Total Capital: ₹{total_capital:,.0f}")
-        logger.info(f"Core Capital (60%): ₹{self.core_capital:,.0f}")
-        logger.info(f"Satellite Capital (40%): ₹{self.satellite_capital:,.0f}")
-        
-        # PART 1: Core Allocation (60%) - Sector Rotation
-        logger.info("\n" + "-" * 80)
-        logger.info("PART 1: CORE ALLOCATION (60%) - SECTOR ROTATION")
-        logger.info("-" * 80)
-        
-        core_result = self._rebalance_core(
-            sector_prices, stocks_data, stocks_prices, as_of_date
-        )
-        
-        # PART 2: Satellite Allocation (40%) - Stock Selection
-        logger.info("\n" + "-" * 80)
-        logger.info("PART 2: SATELLITE ALLOCATION (40%) - STOCK SELECTION")
-        logger.info("-" * 80)
-        
-        satellite_result = self._rebalance_satellite(
-            stocks_data, stocks_prices, as_of_date
-        )
-        
-        # Combine results
-        result = {
-            'success': True,
-            'date': as_of_date or datetime.now(),
-            'total_capital': total_capital,
+        try:
+            logger.info("=" * 60)
+            logger.info(f"PORTFOLIO REBALANCING: {as_of_date.date()}")
+            logger.info("=" * 60)
             
-            # Core results
-            'core': {
-                'allocation': self.core_allocation,
-                'capital': self.core_capital,
-                'selected_sectors': core_result['selected_sectors'],
-                'stocks': core_result['stocks'],
-                'positions': core_result['positions']
-            },
+            # 1. Core Portfolio (60%): Sector rotation
+            core_result = self._rebalance_core(
+                sector_prices, stocks_data, stocks_prices, as_of_date
+            )
             
-            # Satellite results
-            'satellite': {
-                'allocation': self.satellite_allocation,
-                'capital': self.satellite_capital,
-                'stocks': satellite_result['stocks'],
-                'positions': satellite_result['positions']
-            },
+            # 2. Satellite Portfolio (40%): Stock selection
+            satellite_result = self._rebalance_satellite(
+                stocks_data, stocks_prices, as_of_date
+            )
             
-            # Combined orders
-            'orders': self._generate_orders(core_result, satellite_result, stocks_prices)
-        }
-        
-        logger.info("\n" + "=" * 80)
-        logger.info("REBALANCING COMPLETE")
-        logger.info("=" * 80)
-        logger.info(f"Core Stocks: {len(core_result['stocks'])}")
-        logger.info(f"Satellite Stocks: {len(satellite_result['stocks'])}")
-        logger.info(f"Total Positions: {len(core_result['stocks']) + len(satellite_result['stocks'])}")
-        logger.info(f"Orders Generated: {len(result['orders'])}")
-        
-        return result
+            # 3. Combine portfolios
+            combined_positions = self._combine_portfolios(
+                core_result['positions'],
+                satellite_result['positions']
+            )
+            
+            # 4. Generate order list
+            orders = self._generate_orders(
+                combined_positions,
+                self.current_positions
+            )
+            
+            # Update state
+            self.current_positions = combined_positions
+            self.last_rebalance_date = as_of_date
+            
+            result = {
+                'success': True,
+                'date': as_of_date,
+                'core': core_result,
+                'satellite': satellite_result,
+                'combined_positions': combined_positions,
+                'orders': orders,
+                'total_positions': len(combined_positions)
+            }
+            
+            logger.info(f"Rebalancing complete: {len(combined_positions)} total positions")
+            logger.info(f"Orders generated: {len(orders)} trades")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Portfolio rebalancing failed: {str(e)}", exc_info=True)
+            return {
+                'success': False,
+                'error': str(e),
+                'date': as_of_date
+            }
     
     def _rebalance_core(self,
                        sector_prices: Dict[str, pd.DataFrame],
@@ -146,350 +123,374 @@ class DualApproachPortfolioManager:
                        stocks_prices: Dict[str, pd.DataFrame],
                        as_of_date: datetime) -> Dict:
         """
-        Rebalance core allocation (60%) using sector rotation
+        Rebalance core 60% allocation using sector rotation
         
-        Strategy:
-        1. Select top K sectors (default: 3) based on momentum
-        2. Within each sector, select top stocks
-        3. Equal weight across sectors, equal weight within sectors
+        FIXED VERSION - Uses correct method signatures and parameter names
         """
-        
-        # Get top sectors
-        sector_result = self.sector_engine.rebalance_sectors(sector_prices, as_of_date)
-        
-        if not sector_result['success']:
-            logger.error("Core rebalancing failed: sector selection failed")
-            return {'stocks': [], 'positions': {}}
-        
-        selected_sectors = sector_result['selected_sectors']
-        stocks_per_sector = Config.CORE_CONFIG['stocks_per_sector']
-        
-        logger.info(f"Selected Sectors: {selected_sectors}")
-        logger.info(f"Stocks per Sector: {stocks_per_sector}")
-        
-        # For each sector, select top stocks
-        core_stocks = []
-        sector_allocations = {}
-        
-        capital_per_sector = self.core_capital / len(selected_sectors)
-        
-        for sector in selected_sectors:
-            # Get stocks in this sector
-            sector_stocks = {
-                symbol: data for symbol, data in stocks_data.items()
-                if data.get('sector') == sector
-            }
+        try:
+            logger.info("EXECUTING CORE ALLOCATION (60%)")
+            logger.info("=" * 60)
             
-            if not sector_stocks:
-                logger.warning(f"No stocks found for sector: {sector}")
-                continue
+            # Step 1: Rank sectors
+            logger.info("Step 1: Ranking sectors by momentum...")
             
-            # Score and rank stocks in this sector
-            # StockSelectionEngine expects list of symbols
-            sector_symbols = list(sector_stocks.keys())
-            scored_stocks = self.stock_selector.select_stocks(
-                sector_symbols, stocks_data, stocks_prices
+            # rank_sectors() returns DataFrame
+            rankings_df = self.sector_engine.rank_sectors(
+                sector_prices,
+                as_of_date=as_of_date
             )
             
-            # Select top N stocks
-            top_stocks = scored_stocks.head(stocks_per_sector)['symbol'].tolist()
+            # Check if DataFrame is empty
+                        # Check if DataFrame is empty
+            if rankings_df.empty:
+                logger.warning("No sectors ranked - insufficient data, skipping core allocation")
+                return {
+                    'success': True,
+                    'positions': {},
+                    'sectors': [],
+                    'allocation': self.core_allocation
+                }
+
             
-            # Equal weight within sector
-            weight_per_stock = capital_per_sector / len(top_stocks)
+            # Get top sectors from the DataFrame
+            top_k = Config.CORE_CONFIG['top_sectors']  # Default: 3
             
-            for symbol in top_stocks:
-                core_stocks.append({
-                    'symbol': symbol,
-                    'sector': sector,
-                    'capital': weight_per_stock,
-                    'weight': weight_per_stock / self.total_capital,
-                    'type': 'core'
-                })
+            # Select top sectors by composite_score
+            if 'composite_score' in rankings_df.columns:
+                top_sectors_df = rankings_df.nlargest(top_k, 'composite_score')
+            elif 'momentum_6m' in rankings_df.columns:
+                # Fallback to 6-month momentum
+                top_sectors_df = rankings_df.nlargest(top_k, 'momentum_6m')
+            else:
+                # Use first top_k rows
+                top_sectors_df = rankings_df.head(top_k)
             
-            sector_allocations[sector] = {
-                'capital': capital_per_sector,
-                'stocks': top_stocks
+            # Extract sector names
+            if 'sector' in top_sectors_df.columns:
+                top_sectors = top_sectors_df['sector'].tolist()
+            elif 'name' in top_sectors_df.columns:
+                top_sectors = top_sectors_df['name'].tolist()
+            else:
+                # Use index as sector names
+                top_sectors = top_sectors_df.index.tolist()
+            
+            if not top_sectors:
+                raise ValueError("No top sectors selected")
+                
+            logger.info(f"Selected sectors: {top_sectors}")
+            
+            # Calculate per-sector allocation
+            core_capital = self.core_allocation  # 60% as weight
+            per_sector_weight = core_capital / len(top_sectors)
+            stocks_per_sector = Config.CORE_CONFIG['stocks_per_sector']
+            
+            logger.info(f"Per-sector weight: {per_sector_weight*100:.2f}%")
+            logger.info(f"Stocks per sector: {stocks_per_sector}")
+            
+            # Step 2: Select top stocks within each sector
+            core_positions = {}
+            
+            for sector in top_sectors:
+                logger.info(f"\nProcessing sector: {sector}")
+                
+                # Get stocks in this sector
+                sector_stocks = {
+                    symbol: data for symbol, data in stocks_data.items()
+                    if data.get('sector') == sector
+                }
+                
+                if not sector_stocks:
+                    logger.warning(f"No stocks found for sector {sector}")
+                    continue
+                
+                logger.info(f"  Found {len(sector_stocks)} stocks in {sector}")
+                
+                # Filter stocks that have price data
+                sector_stocks_with_prices = {
+                    symbol: data for symbol, data in sector_stocks.items()
+                    if symbol in stocks_prices and not stocks_prices[symbol].empty
+                }
+                
+                if not sector_stocks_with_prices:
+                    logger.warning(f"No stocks with price data for {sector}")
+                    continue
+                
+                # Create proper dictionary for stocks_prices filtered to this sector
+                sector_stocks_prices = {
+                    symbol: prices for symbol, prices in stocks_prices.items()
+                    if symbol in sector_stocks_with_prices
+                }
+                
+                # ==================== FIX: Use correct parameters ====================
+                # StockSelectionEngine.select_stocks() signature:
+                # def select_stocks(stocks_data, stocks_prices, benchmark_data=None, 
+                #                   sector_mapping=None, previous_holdings=None)
+                
+                selection_result = self.stock_selector.select_stocks(
+                    sector_stocks_with_prices,  # stocks_data: Dict[str, Dict]
+                    sector_stocks_prices,        # stocks_prices: Dict[str, pd.DataFrame]
+                    benchmark_data=None,
+                    sector_mapping=None,
+                    previous_holdings=None
+                )
+                # ====================================================================
+                
+                if not selection_result['success']:
+                    logger.warning(f"Stock selection failed for {sector}")
+                    continue
+                
+                # Extract selected stocks and limit to stocks_per_sector
+                selected_stocks = selection_result.get('selected_stocks', [])
+                all_scores_df = selection_result.get('all_scores', pd.DataFrame())
+                
+                # Limit to stocks_per_sector
+                if len(selected_stocks) > stocks_per_sector:
+                    if not all_scores_df.empty and 'composite_score' in all_scores_df.columns:
+                        # Use 'symbol' column if it exists, otherwise use index
+                        if 'symbol' in all_scores_df.columns:
+                            # Filter to only selected stocks
+                            selected_scores = all_scores_df[all_scores_df['symbol'].isin(selected_stocks)]
+                            top_stocks_df = selected_scores.nlargest(stocks_per_sector, 'composite_score')
+                            selected_stocks = top_stocks_df['symbol'].tolist()
+                        else:
+                            # Use index
+                            selected_scores = all_scores_df.loc[all_scores_df.index.isin(selected_stocks)]
+                            top_stocks_df = selected_scores.nlargest(stocks_per_sector, 'composite_score')
+                            selected_stocks = top_stocks_df.index.tolist()
+                    else:
+                        # Just take first N
+                        selected_stocks = selected_stocks[:stocks_per_sector]
+                
+                logger.info(f"  Selected {len(selected_stocks)} stocks: {selected_stocks}")
+                
+                # Equal weight within sector
+                if len(selected_stocks) > 0:
+                    per_stock_weight = per_sector_weight / len(selected_stocks)
+                    
+                    for symbol in selected_stocks:
+                        core_positions[symbol] = {
+                            'weight': per_stock_weight,
+                            'sector': sector,
+                            'allocation_type': 'core'
+                        }
+                        logger.info(f"    {symbol}: {per_stock_weight*100:.2f}%")
+            
+            logger.info(f"\nCore portfolio: {len(core_positions)} positions")
+            
+            return {
+                'success': True,
+                'positions': core_positions,
+                'sectors': top_sectors,
+                'allocation': core_capital
             }
             
-            logger.info(f"  {sector}: {len(top_stocks)} stocks, ₹{weight_per_stock:,.0f} per stock")
-        
-        # Create positions dict
-        positions = {
-            stock['symbol']: stock['capital']
-            for stock in core_stocks
-        }
-        
-        return {
-            'selected_sectors': selected_sectors,
-            'stocks': core_stocks,
-            'positions': positions,
-            'sector_allocations': sector_allocations
-        }
+        except Exception as e:
+            logger.error(f"Core rebalancing failed: {str(e)}", exc_info=True)
+            raise
     
     def _rebalance_satellite(self,
-                            stocks_data: Dict[str, Dict],
-                            stocks_prices: Dict[str, pd.DataFrame],
-                            as_of_date: datetime) -> Dict:
+                           stocks_data: Dict[str, Dict],
+                           stocks_prices: Dict[str, pd.DataFrame],
+                           as_of_date: datetime) -> Dict:
         """
-        Rebalance satellite allocation (40%) using multi-factor selection
+        Rebalance satellite 40% allocation using multi-factor stock selection
         
-        Strategy:
-        1. Score ALL stocks using multi-factor model
-        2. Select top N stocks (default: 15)
-        3. Equal weight across selected stocks
+        FIXED VERSION - Uses correct method signature
         """
+        try:
+            logger.info("\nEXECUTING SATELLITE ALLOCATION (40%)")
+            logger.info("=" * 60)
+            
+            satellite_capital = self.satellite_allocation  # 40% as weight
+            top_n_stocks = Config.SATELLITE_CONFIG['top_stocks']
+            
+            logger.info(f"Satellite capital: {satellite_capital*100}%")
+            logger.info(f"Target stocks: {top_n_stocks}")
+            
+            # ==================== FIX: Use correct parameters ====================
+            # StockSelectionEngine.select_stocks() signature:
+            # def select_stocks(stocks_data, stocks_prices, benchmark_data=None, 
+            #                   sector_mapping=None, previous_holdings=None)
+            
+            # Select top stocks across all sectors
+            selection_result = self.stock_selector.select_stocks(
+                stocks_data,
+                stocks_prices,
+                benchmark_data=None,
+                sector_mapping=None,
+                previous_holdings=list(self.current_positions.keys()) if self.current_positions else None
+            )
+            # ====================================================================
+            
+            if not selection_result['success']:
+                raise ValueError("Satellite stock selection failed")
+            
+            selected_stocks = selection_result['selected_stocks']
+            stock_weights = selection_result.get('weights', {})
+            all_scores_df = selection_result.get('all_scores', pd.DataFrame())
+            
+            # ✓ SAFETY CHECK: Handle case when no stocks are selected
+            if not selected_stocks:
+                logger.warning("No stocks selected for satellite - returning empty positions")
+                return {
+                    'success': True,
+                    'positions': {},
+                    'allocation': satellite_capital
+                }
+            
+            # Limit to top_n_stocks
+            if len(selected_stocks) > top_n_stocks:
+                if not all_scores_df.empty and 'composite_score' in all_scores_df.columns:
+                    # Use 'symbol' column if it exists, otherwise use index
+                    if 'symbol' in all_scores_df.columns:
+                        selected_scores = all_scores_df[all_scores_df['symbol'].isin(selected_stocks)]
+                        top_stocks_df = selected_scores.nlargest(top_n_stocks, 'composite_score')
+                        selected_stocks = top_stocks_df['symbol'].tolist()
+                    else:
+                        selected_scores = all_scores_df.loc[all_scores_df.index.isin(selected_stocks)]
+                        top_stocks_df = selected_scores.nlargest(top_n_stocks, 'composite_score')
+                        selected_stocks = top_stocks_df.index.tolist()
+                else:
+                    selected_stocks = selected_stocks[:top_n_stocks]
+            
+            logger.info(f"Selected {len(selected_stocks)} stocks for satellite")
+            
+            # Normalize weights to sum to satellite_capital
+            if stock_weights:
+                # Filter weights to only selected stocks
+                filtered_weights = {k: v for k, v in stock_weights.items() if k in selected_stocks}
+                total_weight = sum(filtered_weights.values())
+                
+                if total_weight > 0:
+                    normalized_weights = {
+                        symbol: (weight / total_weight) * satellite_capital
+                        for symbol, weight in filtered_weights.items()
+                    }
+                else:
+                    # Fallback to equal weight
+                    per_stock_weight = satellite_capital / len(selected_stocks)
+                    normalized_weights = {symbol: per_stock_weight for symbol in selected_stocks}
+            else:
+                # Equal weight if no weights provided
+                per_stock_weight = satellite_capital / len(selected_stocks)
+                normalized_weights = {symbol: per_stock_weight for symbol in selected_stocks}
+            
+            satellite_positions = {}
+            for symbol in selected_stocks:
+                satellite_positions[symbol] = {
+                    'weight': normalized_weights.get(symbol, 0),
+                    'sector': stocks_data.get(symbol, {}).get('sector', 'Unknown'),
+                    'allocation_type': 'satellite'
+                }
+                logger.info(f"  {symbol}: {normalized_weights.get(symbol, 0)*100:.2f}%")
+            
+            logger.info(f"\nSatellite portfolio: {len(satellite_positions)} positions")
+            
+            return {
+                'success': True,
+                'positions': satellite_positions,
+                'allocation': satellite_capital
+            }
+            
+        except Exception as e:
+            logger.error(f"Satellite rebalancing failed: {str(e)}", exc_info=True)
+            raise
+    
+    def _combine_portfolios(self,
+                           core_positions: Dict,
+                           satellite_positions: Dict) -> Dict:
+        """
+        Combine core and satellite positions, handling overlaps
         
-        num_stocks = Config.SATELLITE_CONFIG['top_stocks']
+        If a stock appears in both core and satellite, combine weights
+        """
+        combined = {}
         
-        logger.info(f"Selecting top {num_stocks} stocks from entire universe")
+        # Add all core positions
+        for symbol, data in core_positions.items():
+            combined[symbol] = data.copy()
         
-        # Score all stocks
-        all_symbols = list(stocks_data.keys())
-        scored_stocks = self.stock_selector.select_stocks(
-            all_symbols, stocks_data, stocks_prices
-        )
+        # Add satellite positions (or combine if overlap)
+        for symbol, data in satellite_positions.items():
+            if symbol in combined:
+                # Stock is in both - combine weights
+                combined[symbol]['weight'] += data['weight']
+                combined[symbol]['allocation_type'] = 'core+satellite'
+                logger.info(f"Combined position: {symbol} "
+                          f"({combined[symbol]['weight']*100:.2f}%)")
+            else:
+                combined[symbol] = data.copy()
         
-        if scored_stocks.empty:
-            logger.error("Satellite rebalancing failed: no stocks scored")
-            return {'stocks': [], 'positions': {}}
+        # Validate total weight
+        total_weight = sum(pos['weight'] for pos in combined.values())
+        logger.info(f"\nTotal portfolio weight: {total_weight*100:.2f}%")
         
-        # Select top N stocks
-        top_stocks = scored_stocks.head(num_stocks)
+        if abs(total_weight - 1.0) > 0.01:  # Allow 1% tolerance
+            logger.warning(f"Portfolio weight {total_weight*100:.2f}% != 100%")
         
-        # Equal weight allocation
-        capital_per_stock = self.satellite_capital / num_stocks
-        
-        satellite_stocks = []
-        for _, row in top_stocks.iterrows():
-            satellite_stocks.append({
-                'symbol': row['symbol'],
-                'sector': stocks_data[row['symbol']].get('sector', 'Unknown'),
-                'capital': capital_per_stock,
-                'weight': capital_per_stock / self.total_capital,
-                'composite_score': row['composite_score'],
-                'type': 'satellite'
-            })
-        
-        # Create positions dict
-        positions = {
-            stock['symbol']: stock['capital']
-            for stock in satellite_stocks
-        }
-        
-        logger.info(f"Selected {len(satellite_stocks)} satellite stocks")
-        logger.info(f"Capital per stock: ₹{capital_per_stock:,.0f}")
-        
-        return {
-            'stocks': satellite_stocks,
-            'positions': positions
-        }
+        return combined
     
     def _generate_orders(self,
-                        core_result: Dict,
-                        satellite_result: Dict,
-                        stocks_prices: Dict[str, pd.DataFrame]) -> List[Dict]:
+                        target_positions: Dict,
+                        current_positions: Dict) -> List[Dict]:
         """
-        Generate buy/sell orders for rebalancing
-        
-        Args:
-            core_result: Core allocation results
-            satellite_result: Satellite allocation results
-            stocks_prices: Current stock prices
-        
-        Returns:
-            List of order dictionaries
+        Generate buy/sell orders to transition from current to target
         """
         orders = []
         
-        # Combine target positions
-        target_positions = {}
-        target_positions.update(core_result['positions'])
-        
-        # For satellite, handle overlaps
-        for symbol, capital in satellite_result['positions'].items():
-            if symbol in target_positions:
-                # Stock in both core and satellite - combine capital
-                target_positions[symbol] += capital
-            else:
-                target_positions[symbol] = capital
-        
-        # Generate sell orders (stocks to exit)
-        current_symbols = set(list(self.core_holdings.keys()) + list(self.satellite_holdings.keys()))
-        target_symbols = set(target_positions.keys())
-        
-        symbols_to_sell = current_symbols - target_symbols
-        
-        for symbol in symbols_to_sell:
-            current_holding = self.core_holdings.get(symbol, 0) + self.satellite_holdings.get(symbol, 0)
-            
-            if current_holding > 0:
+        # Sells: positions to exit
+        for symbol in current_positions:
+            if symbol not in target_positions:
                 orders.append({
+                    'symbol': symbol,
                     'action': 'SELL',
-                    'symbol': symbol,
-                    'amount': current_holding,
-                    'reason': 'Exit position'
+                    'current_weight': current_positions[symbol]['weight'],
+                    'target_weight': 0
                 })
         
-        # Generate buy orders (new positions or increases)
-        for symbol, target_capital in target_positions.items():
-            current_holding = self.core_holdings.get(symbol, 0) + self.satellite_holdings.get(symbol, 0)
+        # Buys and adjustments
+        for symbol, target_data in target_positions.items():
+            current_weight = current_positions.get(symbol, {}).get('weight', 0)
+            target_weight = target_data['weight']
             
-            if target_capital > current_holding:
-                # Need to buy
-                amount_to_buy = target_capital - current_holding
-                
+            if abs(target_weight - current_weight) > 0.001:  # 0.1% threshold
+                action = 'BUY' if target_weight > current_weight else 'SELL'
                 orders.append({
-                    'action': 'BUY',
                     'symbol': symbol,
-                    'amount': amount_to_buy,
-                    'target_capital': target_capital,
-                    'reason': 'Enter/Increase position'
+                    'action': action,
+                    'current_weight': current_weight,
+                    'target_weight': target_weight,
+                    'sector': target_data['sector']
                 })
-            elif target_capital < current_holding:
-                # Need to reduce
-                amount_to_sell = current_holding - target_capital
-                
-                orders.append({
-                    'action': 'SELL',
-                    'symbol': symbol,
-                    'amount': amount_to_sell,
-                    'target_capital': target_capital,
-                    'reason': 'Reduce position'
-                })
-        
-        logger.info(f"Generated {len(orders)} orders ({sum(1 for o in orders if o['action']=='BUY')} BUY, {sum(1 for o in orders if o['action']=='SELL')} SELL)")
         
         return orders
     
-    def update_holdings(self, executed_orders: List[Dict]):
-        """
-        Update holdings after order execution
-        
-        Args:
-            executed_orders: List of executed orders with final amounts
-        """
-        for order in executed_orders:
-            symbol = order['symbol']
-            action = order['action']
-            amount = order['amount']
-            order_type = order.get('type', 'core')  # core or satellite
-            
-            if order_type == 'core':
-                holdings = self.core_holdings
-            else:
-                holdings = self.satellite_holdings
-            
-            if action == 'BUY':
-                holdings[symbol] = holdings.get(symbol, 0) + amount
-            elif action == 'SELL':
-                holdings[symbol] = max(0, holdings.get(symbol, 0) - amount)
-                if holdings[symbol] == 0:
-                    del holdings[symbol]
-        
-        logger.info("Holdings updated after order execution")
-    
     def get_portfolio_summary(self) -> Dict:
         """
-        Get current portfolio summary
-        
-        Returns:
-            Dict with portfolio details
+        Get current portfolio summary statistics
         """
-        total_core = sum(self.core_holdings.values())
-        total_satellite = sum(self.satellite_holdings.values())
-        total = total_core + total_satellite
+        if not self.current_positions:
+            return {'positions': 0, 'total_weight': 0}
+        
+        total_weight = sum(pos['weight'] for pos in self.current_positions.values())
+        
+        # Count by allocation type
+        core_count = sum(1 for pos in self.current_positions.values()
+                        if 'core' in pos.get('allocation_type', ''))
+        satellite_count = sum(1 for pos in self.current_positions.values()
+                             if pos.get('allocation_type') == 'satellite')
+        
+        # Group by sector
+        sector_weights = {}
+        for symbol, data in self.current_positions.items():
+            sector = data.get('sector', 'Unknown')
+            sector_weights[sector] = sector_weights.get(sector, 0) + data['weight']
         
         return {
-            'total_value': total,
-            'core': {
-                'value': total_core,
-                'allocation': total_core / total if total > 0 else 0,
-                'num_positions': len(self.core_holdings)
-            },
-            'satellite': {
-                'value': total_satellite,
-                'allocation': total_satellite / total if total > 0 else 0,
-                'num_positions': len(self.satellite_holdings)
-            },
-            'total_positions': len(self.core_holdings) + len(self.satellite_holdings)
+            'total_positions': len(self.current_positions),
+            'core_positions': core_count,
+            'satellite_positions': satellite_count,
+            'total_weight': total_weight,
+            'sector_weights': sector_weights,
+            'last_rebalance': self.last_rebalance_date
         }
-    
-    def generate_report(self, rebalance_result: Dict) -> str:
-        """
-        Generate detailed portfolio report
-        
-        Args:
-            rebalance_result: Results from rebalance_portfolio()
-        
-        Returns:
-            Formatted report string
-        """
-        report = f"\n{'=' * 100}\n"
-        report += f"DUAL-APPROACH PORTFOLIO REPORT - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        report += f"{'=' * 100}\n\n"
-        
-        # Summary
-        report += f"PORTFOLIO SUMMARY:\n"
-        report += f"{'-' * 100}\n"
-        report += f"Total Capital: ₹{rebalance_result['total_capital']:,.0f}\n\n"
-        
-        # Core allocation
-        core = rebalance_result['core']
-        report += f"CORE ALLOCATION ({core['allocation']:.0%}):\n"
-        report += f"  Capital: ₹{core['capital']:,.0f}\n"
-        report += f"  Selected Sectors: {', '.join(core['selected_sectors'])}\n"
-        report += f"  Number of Stocks: {len(core['stocks'])}\n"
-        report += f"  Positions:\n"
-        
-        for stock in core['stocks'][:10]:  # Show first 10
-            report += f"    {stock['symbol']:<15} {stock['sector']:<25} ₹{stock['capital']:>12,.0f} ({stock['weight']:.2%})\n"
-        
-        if len(core['stocks']) > 10:
-            report += f"    ... and {len(core['stocks']) - 10} more stocks\n"
-        
-        report += f"\n"
-        
-        # Satellite allocation
-        satellite = rebalance_result['satellite']
-        report += f"SATELLITE ALLOCATION ({satellite['allocation']:.0%}):\n"
-        report += f"  Capital: ₹{satellite['capital']:,.0f}\n"
-        report += f"  Number of Stocks: {len(satellite['stocks'])}\n"
-        report += f"  Positions:\n"
-        
-        for stock in satellite['stocks'][:10]:  # Show first 10
-            report += f"    {stock['symbol']:<15} {stock['sector']:<25} ₹{stock['capital']:>12,.0f} ({stock['weight']:.2%})\n"
-        
-        if len(satellite['stocks']) > 10:
-            report += f"    ... and {len(satellite['stocks']) - 10} more stocks\n"
-        
-        report += f"\n{'-' * 100}\n"
-        
-        # Orders summary
-        orders = rebalance_result['orders']
-        buy_orders = [o for o in orders if o['action'] == 'BUY']
-        sell_orders = [o for o in orders if o['action'] == 'SELL']
-        
-        report += f"\nORDERS SUMMARY:\n"
-        report += f"  Total Orders: {len(orders)}\n"
-        report += f"  Buy Orders: {len(buy_orders)}\n"
-        report += f"  Sell Orders: {len(sell_orders)}\n"
-        
-        report += f"\n{'=' * 100}\n"
-        
-        return report
-
-
-if __name__ == "__main__":
-    # Test the dual-approach manager
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    
-    manager = DualApproachPortfolioManager()
-    
-    print("Dual-Approach Portfolio Manager initialized successfully!")
-    print(f"Core Allocation: {manager.core_allocation:.0%}")
-    print(f"Satellite Allocation: {manager.satellite_allocation:.0%}")
-    
-    summary = manager.get_portfolio_summary()
-    print(f"\nPortfolio Summary: {summary}")

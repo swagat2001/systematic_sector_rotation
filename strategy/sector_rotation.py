@@ -375,7 +375,7 @@ class SectorRotationEngine:
                 report += f"{row['rank']:<6}{row['sector']:<30}"
                 report += f"{row['momentum_1m']:<10.2%}{row['momentum_3m']:<10.2%}{row['momentum_6m']:<10.2%}"
                 report += f"{row['composite_score']:<10.4f}"
-                report += f"{'✓' if row['trend_confirmed'] else '✗':<8}\n"
+                report += f"{'âœ“' if row['trend_confirmed'] else 'âœ—':<8}\n"
             
             report += f"{'-' * 80}\n\n"
         

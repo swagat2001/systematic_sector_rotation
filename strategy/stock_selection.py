@@ -39,11 +39,12 @@ class StockSelectionEngine:
         # Strategy parameters (from new dual-approach config)
         self.stock_allocation = Config.SATELLITE_ALLOCATION  # 40%
         self.top_n_stocks = Config.SATELLITE_CONFIG.get('top_stocks', 15)  # Top N stocks
+        self.top_percentile = 0.10  # Top 10% (decile)
         self.hysteresis_period = 60  # 2 months in days
         
-        # Liquidity filters
-        self.min_daily_volume = 1_000_000  # 10 Lakh shares
-        self.min_market_cap = 1_000_000_000  # 1000 Cr (1 Billion)
+        # Liquidity filters (relaxed for testing)
+        self.min_daily_volume = 100_000  # 1 Lakh shares (was 10 Lakh)
+        self.min_market_cap = 100_000_000  # 100 Cr (was 1000 Cr)
         
         # Track selections
         self.current_holdings = []

@@ -18,6 +18,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import sys
 from pathlib import Path
+import plotly.graph_objects as go
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -33,7 +34,7 @@ from data.data_storage import DataStorage
 # Page configuration
 st.set_page_config(
     page_title="Systematic Sector Rotation",
-    page_icon="📈",
+    page_icon="ðŸ“ˆ",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -96,7 +97,7 @@ class Dashboard:
     
     def render_sidebar(self):
         """Render sidebar navigation"""
-        st.sidebar.markdown('<p class="main-header">📈 SSR Strategy</p>', 
+        st.sidebar.markdown('<p class="main-header">ðŸ“ˆ SSR Strategy</p>', 
                           unsafe_allow_html=True)
         
         st.sidebar.markdown("---")
@@ -154,11 +155,11 @@ class Dashboard:
             with multi-factor stock picking to create a diversified, alpha-generating portfolio.
             
             **Key Features:**
-            - 📊 **60% Sector Rotation**: Top-3 sectors by 6-month momentum
-            - 🎯 **40% Stock Selection**: Top decile stocks by composite Z-score
-            - 📅 **Monthly Rebalancing**: Systematic rebalancing discipline
-            - 🛡️ **Risk Controls**: Position limits and volatility management
-            - 📈 **Multi-Factor Scoring**: 30+ fundamental, technical, and statistical metrics
+            - ðŸ“Š **60% Sector Rotation**: Top-3 sectors by 6-month momentum
+            - ðŸŽ¯ **40% Stock Selection**: Top decile stocks by composite Z-score
+            - ðŸ“… **Monthly Rebalancing**: Systematic rebalancing discipline
+            - ðŸ›¡ï¸ **Risk Controls**: Position limits and volatility management
+            - ðŸ“ˆ **Multi-Factor Scoring**: 30+ fundamental, technical, and statistical metrics
             """)
         
         with col2:
@@ -215,7 +216,7 @@ class Dashboard:
             st.plotly_chart(fig, use_container_width=True)
         
         else:
-            st.info("👈 Run a backtest from the Backtest page to see results")
+            st.info("ðŸ‘ˆ Run a backtest from the Backtest page to see results")
     
     def render_backtest(self):
         """Render backtest page"""
@@ -241,13 +242,13 @@ class Dashboard:
         
         with col3:
             initial_capital = st.number_input(
-                "Initial Capital (₹)",
+                "Initial Capital (â‚¹)",
                 value=1000000,
                 step=100000
             )
         
         # Run backtest button
-        if st.button("🚀 Run Backtest", type="primary"):
+        if st.button("ðŸš€ Run Backtest", type="primary"):
             with st.spinner("Running backtest... This may take a few minutes."):
                 try:
                     # Generate sample data for demo
@@ -299,7 +300,7 @@ class Dashboard:
                         st.session_state.backtest_result = result
                         st.session_state.analysis = analysis
                         
-                        st.success("✅ Backtest completed successfully!")
+                        st.success("âœ… Backtest completed successfully!")
                         # Rerun is not needed - results will show on next interaction
                     else:
                         st.error(f"Backtest failed: {result.get('error')}")
@@ -369,21 +370,31 @@ class Dashboard:
                 st.dataframe(metrics_df, hide_index=True, use_container_width=True)
     
     def render_portfolio(self):
-        """Render portfolio page"""
-        st.markdown('<p class="main-header">Portfolio Overview</p>', 
-                   unsafe_allow_html=True)
-        
+        """Render portfolio page with sector allocation"""
+        st.markdown('<h1 style="color: #1f77b4;">📊 Portfolio Overview</h1>', unsafe_allow_html=True)
+    
         # Get backtest results (check both sources)
         result = st.session_state.get('backtest_result') or st.session_state.get('real_backtest_result')
         analysis = st.session_state.get('analysis') or st.session_state.get('real_backtest_analysis')
+        stocks_data = st.session_state.get('stocks_data', {})  # ✓ Get stocks_data with sector info
         
         if not result:
             st.warning("No backtest results available. Run a backtest first to see portfolio positions.")
             return
+    
+        # DEBUG: Show what we have
+        with st.expander("🔍 Debug Info", expanded=False):
+            st.write("**Result keys:**", list(result.keys()))
+            if 'portfolio' in result:
+                st.write("**Portfolio type:**", type(result['portfolio']))
+                st.write("**Portfolio sample:**", dict(list(result['portfolio'].items())[:3]))
+            if stocks_data:
+                sample_stock = list(stocks_data.keys())[0] if stocks_data else None
+                if sample_stock:
+                    st.write(f"**Sample stocks_data ({sample_stock}):**", stocks_data[sample_stock])
         
         # Extract final positions from backtest
         portfolio = None
-        
         if 'portfolio' in result and result['portfolio']:
             portfolio = result['portfolio']
         elif 'final_portfolio' in result and result['final_portfolio']:
@@ -396,108 +407,162 @@ class Dashboard:
         
         if not portfolio:
             st.warning("Portfolio data not available in backtest results.")
-            st.info("Debug info:")
-            st.write("Available keys in result:", list(result.keys()))
-            if 'portfolio_snapshots' in result and result['portfolio_snapshots']:
-                st.write("Last snapshot keys:", list(result['portfolio_snapshots'][-1].keys()))
             return
-        
-        # Display portfolio value
-        if 'equity_curve' in result:
+    
+        # Get portfolio value
+        initial_capital = result.get('initial_capital', 1000000)
+        if 'equity_curve' in result and result['equity_curve']:
             equity_data = result['equity_curve']
             if isinstance(equity_data, list) and len(equity_data) > 0:
-                final_value = equity_data[-1].get('value', 0) if isinstance(equity_data[-1], dict) else equity_data[-1]
+                final_value = equity_data[-1].get('value', initial_capital)
             elif isinstance(equity_data, pd.DataFrame) and not equity_data.empty:
                 numeric_cols = equity_data.select_dtypes(include=['number']).columns
-                final_value = equity_data[numeric_cols[0]].iloc[-1] if len(numeric_cols) > 0 else 0
+                final_value = equity_data[numeric_cols[0]].iloc[-1] if len(numeric_cols) > 0 else initial_capital
             else:
-                final_value = 0
-            
-            st.metric(
-                "Portfolio Value",
-                f"₹{final_value:,.0f}",
-                delta=f"{analysis['returns']['total_return']:.2f}%" if analysis else None
-            )
+                final_value = initial_capital
+        else:
+            final_value = initial_capital
+    
+        # Display portfolio value
+        total_return = ((final_value / initial_capital) - 1) * 100 if initial_capital > 0 else 0
+        st.metric(
+            "Portfolio Value",
+            f"₹{final_value:,.0f}",
+            delta=f"{total_return:.2f}%"
+        )
         
         st.markdown("---")
-        
-        # Sector Allocation
+    
+        # ==================== FIX: Calculate Sector Allocation from Stock Positions ====================
         st.subheader("Sector Allocation")
         
-        sector_positions = {k: v for k, v in portfolio.items() if k.startswith('SECTOR:')}
+        # Portfolio can be either:
+        # 1. Dict[str, float] with weights: {'INFY': 0.071, 'TCS': 0.065, ...}
+        # 2. Dict[str, int] with shares: {'INFY': 100, 'TCS': 150, ...}
         
-        if sector_positions:
-            fig = self.chart_gen.create_sector_allocation_pie(portfolio)
-            st.plotly_chart(fig, use_container_width=True)
+        # Aggregate by sector
+        sector_allocation = {}
+        stock_positions_list = []
+        
+        for symbol, value in portfolio.items():
+            # Skip sector keys if they exist (shouldn't, but just in case)
+            if str(symbol).startswith('SECTOR:'):
+                continue
             
-            # Sector breakdown table
-            sector_data = []
-            for symbol, weight in sector_positions.items():
-                sector_name = symbol.replace('SECTOR:', '')
-                sector_data.append({
-                    'Sector': sector_name,
-                    'Weight': f"{weight*100:.2f}%",
-                    'Value': f"₹{final_value * weight:,.0f}" if final_value else 'N/A'
-                })
+            # Determine if value is weight or shares
+            # If value is < 1, it's likely a weight; if > 100, it's likely shares
+            if value < 1:
+                # It's a weight
+                weight = value
+                position_value = weight * final_value
+            else:
+                # It's shares - need current price to calculate value
+                # For now, skip share-based positions
+                continue
             
-            sector_df = pd.DataFrame(sector_data)
-            st.dataframe(sector_df, hide_index=True, use_container_width=True)
+            # Look up sector from stocks_data
+            sector = 'Unknown'
+            if stocks_data and symbol in stocks_data:
+                sector_info = stocks_data[symbol]
+                if isinstance(sector_info, dict):
+                    sector = sector_info.get('sector', 'Unknown')
+                else:
+                    sector = 'Unknown'
+            
+            # Aggregate by sector
+            if sector not in sector_allocation:
+                sector_allocation[sector] = 0
+            sector_allocation[sector] += weight
+            
+            # Store for stock positions table
+            stock_positions_list.append({
+                'symbol': symbol,
+                'sector': sector,
+                'weight': weight,
+                'value': position_value
+            })
+        
+        # Display sector allocation
+        if sector_allocation:
+            # Remove 'Unknown' if it's negligible
+            if 'Unknown' in sector_allocation and sector_allocation['Unknown'] < 0.01:
+                del sector_allocation['Unknown']
+            
+            if sector_allocation:
+                # Create pie chart
+                sectors = list(sector_allocation.keys())
+                weights = [v * 100 for v in sector_allocation.values()]
+                values = [v * final_value for v in sector_allocation.values()]
+                
+                fig = go.Figure(data=[go.Pie(
+                    labels=sectors,
+                    values=weights,
+                    hole=0.4,
+                    textinfo='label+percent',
+                    hovertemplate='<b>%{label}</b><br>Weight: %{value:.2f}%<br>Value: ₹%{customdata:,.0f}<extra></extra>',
+                    customdata=values
+                )])
+                
+                fig.update_layout(
+                    title="Portfolio Sector Allocation",
+                    height=400,
+                    showlegend=True
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Show sector breakdown table
+                sector_df = pd.DataFrame({
+                    'Sector': sectors,
+                    'Weight (%)': [f"{w:.2f}" for w in weights],
+                    'Value (₹)': [f"{v:,.0f}" for v in values]
+                }).sort_values('Weight (%)', ascending=False, key=lambda x: x.str.replace('%','').astype(float))
+                
+                st.dataframe(sector_df, hide_index=True, use_container_width=True)
+            else:
+                st.info("No sector positions in current portfolio")
         else:
             st.info("No sector positions in current portfolio")
+    
+        # ==========================================================================================
         
         st.markdown("---")
         
-        # Stock Positions
+        # Current Stock Positions
         st.subheader("Current Stock Positions")
         
-        stock_positions = {k: v for k, v in portfolio.items() if not k.startswith('SECTOR:') and v > 0}
-        
-        if stock_positions:
-            # Build positions dataframe
-            positions_data = []
-            
-            for symbol, weight in stock_positions.items():
-                position_value = final_value * weight if final_value else 0
-                
-                positions_data.append({
-                    'symbol': symbol,
-                    'weight': weight,
-                    'current_value': position_value,
-                    'weight_pct': weight * 100
-                })
-            
-            positions_df = pd.DataFrame(positions_data)
+        if stock_positions_list:
+            # Create DataFrame
+            positions_df = pd.DataFrame(stock_positions_list)
             positions_df = positions_df.sort_values('weight', ascending=False)
             
-            # Display as table
+            # Format for display
+            display_df = pd.DataFrame({
+                'Symbol': positions_df['symbol'],
+                'Sector': positions_df['sector'],  # ✓ Now shows sector
+                'Weight (%)': positions_df['weight'].apply(lambda x: f"{x*100:.2f}"),
+                'Value (₹)': positions_df['value'].apply(lambda x: f"{x:,.0f}")
+            })
+            
             st.dataframe(
-                positions_df[['symbol', 'weight_pct', 'current_value']].rename(columns={
-                    'symbol': 'Symbol',
-                    'weight_pct': 'Weight (%)',
-                    'current_value': 'Value (₹)'
-                }).style.format({
-                    'Weight (%)': '{:.2f}',
-                    'Value (₹)': '{:,.0f}'
-                }),
+                display_df,
                 hide_index=True,
                 use_container_width=True
             )
             
             # Summary stats
             col1, col2, col3 = st.columns(3)
-            
             with col1:
-                st.metric("Total Positions", len(stock_positions))
-            
+                st.metric("Total Positions", len(stock_positions_list))
             with col2:
-                total_stock_weight = sum(stock_positions.values())
-                st.metric("Stock Allocation", f"{total_stock_weight*100:.1f}%")
-            
+                st.metric("Number of Sectors", len(sector_allocation))
             with col3:
-                avg_position = sum(stock_positions.values()) / len(stock_positions)
-                st.metric("Avg Position Size", f"{avg_position*100:.2f}%")
+                if len(stock_positions_list) > 0:
+                    avg_position = sum([p['weight'] for p in stock_positions_list]) / len(stock_positions_list) * 100
+                    st.metric("Avg Position Size", f"{avg_position:.2f}%")
         else:
             st.info("No stock positions in current portfolio")
+
         
         st.markdown("---")
         
@@ -511,7 +576,7 @@ class Dashboard:
             cash_value = final_value * cash_weight if final_value else 0
             st.metric(
                 "Cash Position",
-                f"₹{cash_value:,.0f}",
+                f"â‚¹{cash_value:,.0f}",
                 delta=f"{cash_weight*100:.2f}%"
             )
         else:
@@ -527,7 +592,7 @@ class Dashboard:
         result = st.session_state.get('backtest_result') or st.session_state.get('real_backtest_result')
         
         if not analysis:
-            st.warning("⚠️ No backtest results available. Run a backtest first.")
+            st.warning("âš ï¸ No backtest results available. Run a backtest first.")
             return
         
         # Use the found results

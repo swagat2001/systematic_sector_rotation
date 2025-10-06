@@ -50,10 +50,10 @@ class Config:
         },
         
         'trend_confirmation': {
-            'enabled': True,
+            'enabled': False,  # Disabled for testing
             'ma_fast': 50,
             'ma_slow': 200,
-            'require_uptrend': True,
+            'require_uptrend': False,  # Disabled
             'min_trend_strength': 0.02,
         },
         
