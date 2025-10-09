@@ -56,26 +56,35 @@ def render_real_data_backtest():
         st.markdown("---")
         st.subheader("⚙️ Backtest Configuration")
         
-        min_date, max_date = bridge.get_date_range()
+        # Get available date range from database
+        db_min_date, db_max_date = bridge.get_date_range()
+        
+        # For API integration: Allow any date range
+        # User can select dates even outside NSE database range
+        # System will use API data if configured
+        
+        # Show database date range as info
+        st.info(f"📊 NSE Database: {db_min_date.date()} to {db_max_date.date()} | "
+                f"⚡ With API integration, any date range supported!")
         
         col1, col2 = st.columns(2)
         
         with col1:
             start_date = st.date_input(
                 "Start Date",
-                value=max(min_date, max_date - timedelta(days=3*365)),
-                min_value=min_date,
-                max_value=max_date,
-                key="backtest_start_date"  # ✓ ADDED
+                value=max(db_min_date, db_max_date - timedelta(days=3*365)),
+                min_value=datetime(2015, 1, 1),  # Allow from 2015 (API can provide older data)
+                max_value=datetime.now(),  # Allow up to today
+                key="backtest_start_date"
             )
         
         with col2:
             end_date = st.date_input(
                 "End Date",
-                value=max_date,
-                min_value=min_date,
-                max_value=max_date,
-                key="backtest_end_date"  # ✓ ADDED
+                value=db_max_date,
+                min_value=datetime(2015, 1, 1),  # Allow from 2015
+                max_value=datetime.now(),  # Allow up to today
+                key="backtest_end_date"
             )
         
         initial_capital = st.number_input(
@@ -86,6 +95,19 @@ def render_real_data_backtest():
             step=100000
         )
         
+        # Check if dates are outside NSE database range
+        start_dt = datetime.combine(start_date, datetime.min.time())
+        end_dt = datetime.combine(end_date, datetime.min.time())
+        
+        if start_dt < db_min_date or end_dt > db_max_date:
+            st.warning(
+                f"⚠️ Selected dates are outside NSE database range!\n\n"
+                f"NSE Data: {db_min_date.date()} to {db_max_date.date()}\n"
+                f"Selected: {start_date} to {end_date}\n\n"
+                f"💡 To use dates outside database range, integrate Manager's API "
+                f"for fundamental data. See MANAGER_API_INTEGRATION_GUIDE.md"
+            )
+        
         # Run Backtest Button
         st.markdown("---")
         
@@ -93,6 +115,19 @@ def render_real_data_backtest():
             
             if start_date >= end_date:
                 st.error("Start date must be before end date!")
+                return
+            
+            # Additional validation for date range vs database
+            if start_dt < db_min_date or end_dt > db_max_date:
+                st.error(
+                    f"❌ Cannot run backtest!\n\n"
+                    f"Selected dates ({start_date} to {end_date}) are outside " 
+                    f"NSE database range ({db_min_date.date()} to {db_max_date.date()}).\n\n"
+                    f"🔧 **Solution:**\n"
+                    f"1. Select dates within NSE database range, OR\n"
+                    f"2. Integrate Manager's API to access historical data\n\n"
+                    f"See: MANAGER_API_INTEGRATION_GUIDE.md"
+                )
                 return
             
             with st.spinner("🔄 Running backtest with real NSE data..."):

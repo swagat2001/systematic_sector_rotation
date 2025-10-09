@@ -27,7 +27,7 @@ from dashboard.chart_generator import ChartGenerator
 from dashboard.real_data_backtest import render_real_data_backtest
 from backtesting.backtest_engine import BacktestEngine
 from backtesting.performance_analyzer import PerformanceAnalyzer
-from strategy.portfolio_manager import PortfolioManager
+from strategy.dual_approach_portfolio import DualApproachPortfolioManager
 from execution.paper_trading import PaperTradingEngine
 from data.data_storage import DataStorage
 

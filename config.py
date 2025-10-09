@@ -34,6 +34,26 @@ class Config:
     LOG_DIR = LOG_DIR
     DATABASE_DIR = DATABASE_DIR
     
+    # ==================== FUNDAMENTAL DATA SOURCE ====================
+    # Configure where to get ROE, ROCE, EPS CAGR, and other fundamentals
+    
+    FUNDAMENTAL_PROVIDER = {
+        'type': 'default',  # Options: 'default' (synthetic), 'manager_api', 'csv', 'database'
+        
+        # For 'manager_api' type, configure:
+        # 'api_key': 'your_api_key_here',
+        # 'api_url': 'https://your-api-endpoint.com',
+        # 'timeout': 30,
+        # 'retry_attempts': 3,
+        
+        # For 'csv' type, configure:
+        # 'csv_path': 'path/to/fundamentals.csv',
+        
+        # For 'database' type, configure:
+        # 'db_connection': 'connection_string',
+        # 'table_name': 'fundamentals',
+    }
+    
     # ==================== DUAL-APPROACH ALLOCATION ====================
     CORE_ALLOCATION = 0.60      # 60% for sector rotation (core)
     SATELLITE_ALLOCATION = 0.40  # 40% for stock selection (satellite)

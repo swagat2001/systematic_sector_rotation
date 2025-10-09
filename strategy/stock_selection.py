@@ -161,9 +161,16 @@ class StockSelectionEngine:
     def _apply_sharpe_filter(self, scores_df: pd.DataFrame,
                             stocks_prices: Dict[str, pd.DataFrame],
                             benchmark_data: pd.DataFrame = None) -> pd.DataFrame:
-        """Filter stocks requiring positive Sharpe ratio"""
+        """Filter stocks requiring positive Sharpe ratio (only if we have enough data)"""
         if scores_df.empty:
             return scores_df
+        
+        # Check if we have valid Sharpe ratios (not all NaN or 0)
+        valid_sharpe = scores_df['sharpe_ratio'].notna() & (scores_df['sharpe_ratio'] != 0)
+        
+        if valid_sharpe.sum() < len(scores_df) * 0.1:  # Less than 10% have valid Sharpe
+            logger.warning(f"Insufficient Sharpe data ({valid_sharpe.sum()}/{len(scores_df)} stocks), skipping Sharpe filter")
+            return scores_df  # Skip filter if insufficient data
         
         filtered = scores_df[scores_df['sharpe_ratio'] > 0].copy()
         logger.info(f"Sharpe filter: {len(filtered)}/{len(scores_df)} stocks pass")

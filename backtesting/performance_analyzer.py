@@ -162,8 +162,8 @@ class PerformanceAnalyzer:
         
         daily_returns = daily_values.pct_change().dropna()
         
-        # Volatility (annualized)
-        volatility = calculate_volatility(daily_values)
+        # Volatility (annualized) - FIXED: Pass returns, not values
+        volatility = daily_returns.std() * np.sqrt(252)  # Standard formula
         
         # Sharpe Ratio
         excess_returns = daily_returns - self.daily_rf

@@ -17,7 +17,9 @@ from datetime import datetime, timedelta
 from typing import Dict, Tuple, Optional
 import numpy as np
 
+from config import Config
 from utils.logger import setup_logger
+from data.fundamental_data_provider import get_fundamental_provider
 
 logger = setup_logger(__name__)
 
@@ -97,6 +99,31 @@ class NSEDataBridge:
             # Default location - nse_cash.db from scraper
             project_root = Path(__file__).parent.parent
             nse_db_path = project_root / 'NSE_sector_wise_data' / 'nse_cash.db'
+        
+        self.db_path = nse_db_path
+        
+        if not Path(nse_db_path).exists():
+            raise FileNotFoundError(
+                f"NSE database not found at {nse_db_path}\n"
+                f"Run NSE_sector_wise_data/nse_cash_ohlc_pipeline.py first to download data."
+            )
+        
+        self.conn = sqlite3.connect(str(nse_db_path))
+        
+        # Initialize fundamental data provider
+        provider_config = Config.FUNDAMENTAL_PROVIDER
+        self.fundamental_provider = get_fundamental_provider(**provider_config)
+        
+        # Log connection
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM companies")
+        num_companies = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM ohlc")
+        num_ohlc = cursor.fetchone()[0]
+        
+        logger.info(f"✓ NSE Database: {nse_db_path}")
+        logger.info(f"✓ Database contains {num_companies} stocks with {num_ohlc:,} price records")
+        logger.info(f"✓ Fundamental provider: {provider_config['type']}")
         
         self.nse_db_path = Path(nse_db_path)
         
@@ -280,23 +307,45 @@ class NSEDataBridge:
         
         logger.info(f"✓ Loaded {len(stocks_prices)} stocks with price data")
         
-        # 4. Create stocks data with mapped sectors
+        # 4. Create stocks data with mapped sectors and REAL fundamental data
         stocks_data = {}
+        
+        # Get fundamental data from provider (bulk fetch for efficiency)
+        symbols_with_prices = [s for s in companies_df['symbol'] if s in stocks_prices]
+        logger.info(f"Fetching fundamental data for {len(symbols_with_prices)} stocks...")
+        
+        fundamentals_bulk = self.fundamental_provider.get_bulk_fundamental_data(symbols_with_prices)
+        
         for _, row in companies_df.iterrows():
             if row['symbol'] in stocks_prices:
                 nifty_sector = self._map_sector(row['sector'], row['industry'])
+                
+                # Get fundamental data from provider
+                fundamental_data = fundamentals_bulk.get(row['symbol'], {})
                 
                 stocks_data[row['symbol']] = {
                     'sector': nifty_sector,
                     'yfinance_sector': row['sector'],
                     'yfinance_industry': row['industry'],
-                    'market_cap': 1e10,  # Default
-                    # Synthetic fundamentals
-                    'pe_ratio': np.random.uniform(15, 30),
-                    'pb_ratio': np.random.uniform(2, 8),
-                    'roe': np.random.uniform(0.12, 0.25),
-                    'debt_to_equity': np.random.uniform(0.3, 1.2),
-                    'current_ratio': np.random.uniform(1.2, 2.5)
+                    
+                    # Real fundamental data from provider
+                    'roe': fundamental_data.get('roe', 15.0),
+                    'roce': fundamental_data.get('roce', 18.0),
+                    'eps_cagr': fundamental_data.get('eps_cagr', 10.0),
+                    'pe_ratio': fundamental_data.get('pe_ratio', 20.0),
+                    'pb_ratio': fundamental_data.get('pb_ratio', 3.0),
+                    'debt_to_equity': fundamental_data.get('debt_to_equity', 0.5),
+                    'current_ratio': fundamental_data.get('current_ratio', 1.5),
+                    'market_cap': fundamental_data.get('market_cap', 1e10),
+                    
+                    # Optional additional fundamentals if provided
+                    'revenue_growth': fundamental_data.get('revenue_growth'),
+                    'profit_margin': fundamental_data.get('profit_margin'),
+                    'dividend_yield': fundamental_data.get('dividend_yield'),
+                    'book_value': fundamental_data.get('book_value'),
+                    'eps': fundamental_data.get('eps'),
+                    'revenue': fundamental_data.get('revenue'),
+                    'net_profit': fundamental_data.get('net_profit'),
                 }
         
         logger.info(f"✓ Prepared data for {len(stocks_data)} stocks")
