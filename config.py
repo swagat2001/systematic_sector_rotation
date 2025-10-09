@@ -34,6 +34,19 @@ class Config:
     LOG_DIR = LOG_DIR
     DATABASE_DIR = DATABASE_DIR
     
+    # ==================== DATA SOURCE CONFIGURATION ====================
+    # Choose where to load OHLC price data from
+    
+    DATA_SOURCE = {
+        'type': 'csv',  # Options: 'database' (SQLite), 'csv' (CSV files)
+        
+        # For 'csv' type:
+        'csv_path': r'C:\Users\Admin\Desktop\data\stock_data_NSE',
+        
+        # For 'database' type:
+        # 'db_path': 'NSE_sector_wise_data/nse_cash.db',
+    }
+    
     # ==================== FUNDAMENTAL DATA SOURCE ====================
     # Configure where to get ROE, ROCE, EPS CAGR, and other fundamentals
     

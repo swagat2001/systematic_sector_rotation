@@ -11,10 +11,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from data.nse_data_bridge import NSEDataBridge
+from data.csv_data_bridge import CSVDataBridge
+from config import Config
 from backtesting.backtest_engine import BacktestEngine
 from backtesting.performance_analyzer import PerformanceAnalyzer
 from dashboard.chart_generator import ChartGenerator
 from datetime import datetime, timedelta
+import io
+import textwrap
 
 
 def render_real_data_backtest():
@@ -25,10 +29,16 @@ def render_real_data_backtest():
     
     # Check if NSE database exists
     try:
-        bridge = NSEDataBridge()
+        # Initialize data bridge based on config
+        if Config.DATA_SOURCE['type'] == 'csv':
+            bridge = CSVDataBridge(Config.DATA_SOURCE.get('csv_path'))
+            data_source_name = "CSV Files"
+        else:
+            bridge = NSEDataBridge()
+            data_source_name = "NSE Database"
         
         # Show database info
-        st.success("✅ Connected to NSE database")
+        st.success(f"✅ Connected to {data_source_name}")
         
         with st.expander("📊 Database Info", expanded=False):
             sectors = bridge.get_available_sectors()
@@ -333,16 +343,203 @@ def render_real_data_backtest():
             st.markdown("---")
             st.markdown("### 💾 Export Results")
             
-            if st.button("📥 Download Full Report"):
+            if st.button("📥 Download Full Report (PDF)"):
                 analyzer = PerformanceAnalyzer()
-                report = analyzer.generate_performance_report(analysis)
-                
-                st.download_button(
-                    label="Download Report (TXT)",
-                    data=report,
-                    file_name=f"backtest_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                    mime="text/plain"
-                )
+                report_text = analyzer.generate_performance_report(analysis)
+                try:
+                    # Lazy import to avoid module error at app startup
+                    from reportlab.pdfgen import canvas
+                    from reportlab.lib.pagesizes import A4
+                    from reportlab.lib.units import mm
+                    from reportlab.lib.utils import ImageReader
+                    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as PlatypusImage, Table, TableStyle, PageBreak
+                    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+                    from reportlab.lib import colors
+
+                    # Header/Footer
+                    def _header_footer(canvas_obj, doc_obj):
+                        canvas_obj.saveState()
+                        footer_text = f"Systematic Sector Rotation Report | Page {doc_obj.page}"
+                        canvas_obj.setFont('Helvetica', 8)
+                        canvas_obj.setFillColor(colors.grey)
+                        canvas_obj.drawRightString(doc_obj.pagesize[0] - 18*mm, 12*mm, footer_text)
+                        canvas_obj.restoreState()
+
+                    # Generate a rich PDF report with sections, metrics, and charts
+                    def _generate_pdf_bytes(text_report: str) -> bytes:
+                        buffer = io.BytesIO()
+                        doc = SimpleDocTemplate(buffer, pagesize=A4,
+                                                leftMargin=18*mm, rightMargin=18*mm,
+                                                topMargin=18*mm, bottomMargin=18*mm)
+                        styles = getSampleStyleSheet()
+                        title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=18, spaceAfter=8)
+                        h2_style = ParagraphStyle('H2', parent=styles['Heading2'], fontSize=14, textColor=colors.HexColor('#1f77b4'), spaceBefore=12, spaceAfter=6)
+                        body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=10, leading=14)
+
+                        story = []
+
+                        # Cover / Title
+                        story.append(Paragraph('Backtest Report', title_style))
+                        period_text = f"Period: {result['start_date'].date()} to {result['end_date'].date()}"
+                        story.append(Paragraph(period_text, body_style))
+                        cap_text = f"Initial Capital: ₹{result.get('initial_capital', 0):,.0f} | Final Value: ₹{result.get('final_value', 0):,.0f}"
+                        story.append(Paragraph(cap_text, body_style))
+                        story.append(Spacer(1, 6))
+
+                        # Investment Summary Table
+                        story.append(Paragraph('Investment Summary', h2_style))
+                        total_trades = sum(s['num_trades'] for s in result.get('portfolio_snapshots', [])) if result.get('portfolio_snapshots') else 0
+                        rebalances = result.get('num_rebalances', 0)
+                        days = (result['end_date'] - result['start_date']).days
+                        years = max(days / 365.25, 0.01)
+                        summary_rows = [
+                            ['Start Date', f"{result['start_date'].date()}"],
+                            ['End Date', f"{result['end_date'].date()}"],
+                            ['Duration', f"{days} days ({years:.2f} years)"],
+                            ['Initial Capital', f"₹{result.get('initial_capital', 0):,.0f}"],
+                            ['Final Value', f"₹{result.get('final_value', 0):,.0f}"],
+                            ['Rebalances', f"{rebalances}"],
+                            ['Total Trades', f"{total_trades}"],
+                        ]
+                        summary_table = Table([['Item', 'Value']] + summary_rows, colWidths=[60*mm, 90*mm])
+                        summary_table.setStyle(TableStyle([
+                            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1f77b4')),
+                            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                            ('FONTSIZE', (0,0), (-1,-1), 9),
+                            ('BOTTOMPADDING', (0,0), (-1,0), 6),
+                            ('BACKGROUND', (0,1), (-1,-1), colors.whitesmoke),
+                            ('GRID', (0,0), (-1,-1), 0.25, colors.grey),
+                        ]))
+                        story.append(summary_table)
+                        story.append(Spacer(1, 8))
+
+                        # Key Metrics Table
+                        story.append(Paragraph('Key Performance Metrics', h2_style))
+                        returns = analysis.get('returns', {})
+                        risk = analysis.get('risk', {})
+                        drawdown = analysis.get('drawdown', {})
+                        rows = [
+                            ['Total Return', f"{returns.get('total_return', 0):.2f}%"],
+                            ['CAGR', f"{returns.get('cagr', 0):.2f}%"],
+                            ['Sharpe Ratio', f"{risk.get('sharpe_ratio', 0):.2f}"],
+                            ['Volatility (Annual)', f"{risk.get('volatility', 0):.2f}%"],
+                            ['Max Drawdown', f"{drawdown.get('max_drawdown', 0):.2f}%"],
+                            ['Positive Days', f"{returns.get('positive_pct', 0):.1f}%"],
+                        ]
+                        table = Table([['Metric', 'Value']] + rows, colWidths=[70*mm, 80*mm])
+                        table.setStyle(TableStyle([
+                            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1f77b4')),
+                            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                            ('FONTSIZE', (0,0), (-1,-1), 9),
+                            ('BOTTOMPADDING', (0,0), (-1,0), 6),
+                            ('BACKGROUND', (0,1), (-1,-1), colors.whitesmoke),
+                            ('GRID', (0,0), (-1,-1), 0.25, colors.grey),
+                        ]))
+                        story.append(table)
+                        story.append(Spacer(1, 8))
+
+                        # Charts section
+                        chart_gen = ChartGenerator()
+                        equity_series = None
+                        eq_data = result.get('equity_curve', [])
+                        if eq_data:
+                            eq_df = pd.DataFrame(eq_data)
+                            if not eq_df.empty and 'value' in eq_df.columns:
+                                eq_df['date'] = pd.to_datetime(eq_df['date'])
+                                equity_series = pd.Series(eq_df['value'].values, index=eq_df['date'])
+                        if isinstance(result.get('daily_values'), pd.Series) and not result['daily_values'].empty:
+                            equity_series = result['daily_values']
+
+                        try:
+                            if equity_series is not None and len(equity_series) > 0:
+                                story.append(Paragraph('Equity Curve', h2_style))
+                                fig_eq = chart_gen.create_equity_curve(equity_series)
+                                img_eq = fig_eq.to_image(format='png', scale=2)
+                                story.append(PlatypusImage(io.BytesIO(img_eq), width=170*mm, height=90*mm))
+                                story.append(Spacer(1, 6))
+
+                                story.append(Paragraph('Drawdown', h2_style))
+                                fig_dd = chart_gen.create_drawdown_chart(equity_series)
+                                img_dd = fig_dd.to_image(format='png', scale=2)
+                                story.append(PlatypusImage(io.BytesIO(img_dd), width=170*mm, height=90*mm))
+                                story.append(Spacer(1, 6))
+
+                                story.append(Paragraph('Monthly Returns Heatmap', h2_style))
+                                fig_heat = chart_gen.create_monthly_returns_heatmap(equity_series)
+                                img_heat = fig_heat.to_image(format='png', scale=2)
+                                story.append(PlatypusImage(io.BytesIO(img_heat), width=170*mm, height=90*mm))
+                                story.append(Spacer(1, 6))
+
+                                # Sector Allocation (if available)
+                                portfolio_weights = result.get('portfolio', {})
+                                sector_weights = {k: v for k, v in portfolio_weights.items() if k.startswith('SECTOR:')}
+                                if sector_weights:
+                                    story.append(Paragraph('Sector Allocation', h2_style))
+                                    fig_sector = chart_gen.create_sector_allocation_pie(portfolio_weights)
+                                    img_sector = fig_sector.to_image(format='png', scale=2)
+                                    story.append(PlatypusImage(io.BytesIO(img_sector), width=170*mm, height=90*mm))
+                                    story.append(Spacer(1, 6))
+                        except Exception:
+                            # If chart export fails, continue without images
+                            pass
+
+                        # Portfolio overview (weights if available)
+                        portfolio_weights = result.get('portfolio', {})
+                        if portfolio_weights:
+                            story.append(Paragraph('Final Portfolio Weights', h2_style))
+                            # Prepare top 20 weights
+                            items = sorted(portfolio_weights.items(), key=lambda x: x[1], reverse=True)[:20]
+                            port_rows = [[sym, f"{wt*100:.2f}%"] for sym, wt in items]
+                            ptable = Table([['Symbol', 'Weight']] + port_rows, colWidths=[80*mm, 70*mm])
+                            ptable.setStyle(TableStyle([
+                                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1f77b4')),
+                                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                                ('FONTSIZE', (0,0), (-1,-1), 9),
+                                ('BOTTOMPADDING', (0,0), (-1,0), 6),
+                                ('BACKGROUND', (0,1), (-1,-1), colors.whitesmoke),
+                                ('GRID', (0,0), (-1,-1), 0.25, colors.grey),
+                            ]))
+                            story.append(ptable)
+
+                        # New page for details
+                        story.append(PageBreak())
+
+                        # Append raw text report at the end for completeness
+                        story.append(Spacer(1, 10))
+                        story.append(Paragraph('Detailed Text Report', h2_style))
+                        for raw_line in text_report.splitlines():
+                            if raw_line.strip() == '':
+                                story.append(Spacer(1, 2))
+                            else:
+                                story.append(Paragraph(raw_line.replace('  ', '&nbsp;&nbsp;'), body_style))
+
+                        doc.build(story, onFirstPage=_header_footer, onLaterPages=_header_footer)
+                        pdf_bytes = buffer.getvalue()
+                        buffer.close()
+                        return pdf_bytes
+
+                    pdf_bytes = _generate_pdf_bytes(report_text)
+
+                    st.download_button(
+                        label="Download Report (PDF)",
+                        data=pdf_bytes,
+                        file_name=f"backtest_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                        mime="application/pdf"
+                    )
+                except ImportError:
+                    st.error("PDF generation library not installed. Run: pip install -r requirements.txt")
+                    st.download_button(
+                        label="Download Report (TXT)",
+                        data=report_text,
+                        file_name=f"backtest_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                        mime="text/plain"
+                    )
         
         bridge.close()
         

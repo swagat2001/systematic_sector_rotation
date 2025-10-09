@@ -160,10 +160,18 @@ class BacktestEngine:
                         for symbol, position_data in rebal_result['satellite']['positions'].items():
                             combined_portfolio[symbol] = combined_portfolio.get(symbol, 0) + position_data['weight']
                 
-                # Validate weights sum to ~1.0
+                # Validate and normalize weights to 100%
                 total_weight = sum(combined_portfolio.values())
-                if abs(total_weight - 1.0) > 0.05:  # 5% tolerance
-                    logger.warning(f"Portfolio weights sum to {total_weight*100:.1f}%, not 100%")
+                if total_weight <= 0:
+                    logger.error("Total portfolio weight is zero or negative; skipping execution for this rebalance")
+                    continue
+                
+                if abs(total_weight - 1.0) > 0.01:
+                    logger.warning(f"Portfolio weights sum to {total_weight*100:.1f}%, normalizing to 100%")
+                    normalization_factor = 1.0 / total_weight
+                    for symbol in list(combined_portfolio.keys()):
+                        combined_portfolio[symbol] = max(0.0, combined_portfolio[symbol] * normalization_factor)
+                    total_weight = sum(combined_portfolio.values())
                 
                 logger.info(f"Combined portfolio: {len(combined_portfolio)} positions, total weight: {total_weight*100:.1f}%")
                 # =============================================================================
