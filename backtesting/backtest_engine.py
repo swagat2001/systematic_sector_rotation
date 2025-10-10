@@ -194,14 +194,19 @@ class BacktestEngine:
                     rebal_date
                 )
                 
-                # Record snapshot
+                # Record snapshot with detailed strategy information
                 portfolio_value = self.paper_trader.get_portfolio_value_dict(current_prices)
                 self.portfolio_snapshots.append({
                     'date': rebal_date,
                     'portfolio_value': portfolio_value,
                     'positions': self.paper_trader.positions.copy(),
                     'cash': self.paper_trader.cash,
-                    'num_trades': len(execution_result['executed'])
+                    'num_trades': len(execution_result['executed']),
+                    
+                    # Add strategy details for monthly report (CLIENT REQUIREMENT)
+                    'core_allocation': rebal_result.get('core', {}),
+                    'satellite_allocation': rebal_result.get('satellite', {}),
+                    'trades': execution_result.get('executed', [])
                 })
                 
                 # Track equity point

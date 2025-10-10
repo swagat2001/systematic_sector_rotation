@@ -21,7 +21,15 @@ def calculate_returns(prices: pd.Series) -> pd.Series:
     return prices.pct_change().dropna()
 
 def calculate_sharpe_ratio(returns: pd.Series, risk_free_rate: float = 0.06) -> float:
-    """Calculate annualized Sharpe ratio"""
+    """
+    Calculate annualized Sharpe ratio
+    
+    DEPRECATED: This function uses geometric mean of daily returns.
+    For production use, prefer PerformanceAnalyzer._calculate_risk_metrics()
+    which uses actual CAGR for consistency.
+    
+    This function is kept for backward compatibility and simple calculations.
+    """
     if len(returns) == 0 or returns.std() == 0:
         return 0.0
     

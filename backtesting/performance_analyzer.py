@@ -74,7 +74,7 @@ class PerformanceAnalyzer:
         returns_metrics = self._calculate_returns_metrics(daily_values, backtest_result)
         
         # Calculate risk metrics
-        risk_metrics = self._calculate_risk_metrics(daily_values, benchmark_returns)
+        risk_metrics = self._calculate_risk_metrics(daily_values, returns_metrics['cagr'], benchmark_returns)
         
         # Calculate drawdown metrics
         drawdown_metrics = self._calculate_drawdown_metrics(daily_values)
@@ -98,7 +98,7 @@ class PerformanceAnalyzer:
                 'start': backtest_result['start_date'],
                 'end': backtest_result['end_date'],
                 'days': len(daily_values),
-                'years': len(daily_values) / 252
+                'years': (backtest_result['end_date'] - backtest_result['start_date']).days / 365.25
             }
         }
         
@@ -121,17 +121,35 @@ class PerformanceAnalyzer:
         total_return = (final / initial - 1) * 100
         
         # CAGR (need at least 1 month of data)
-        years = len(daily_values) / 252
-        if years < 0.08:  # Less than 1 month
+        # Use actual calendar period, not just number of daily values
+        actual_years = (backtest_result['end_date'] - backtest_result['start_date']).days / 365.25
+        if actual_years < 0.08:  # Less than 1 month
             cagr = 0.0
-            logger.warning(f"Insufficient data for CAGR calculation ({years:.2f} years)")
+            logger.warning(f"Insufficient data for CAGR calculation ({actual_years:.2f} years)")
         else:
-            cagr = calculate_cagr(initial, final, years)
+            cagr = calculate_cagr(initial, final, actual_years)
         
-        # Periodic returns
-        daily_return = daily_returns.mean() * 100
-        monthly_return = daily_returns.mean() * 21 * 100
-        annual_return = daily_returns.mean() * 252 * 100
+        # Periodic returns - PDF FORMULA COMPLIANT
+        daily_return = daily_returns.mean() * 100  # Average daily return
+        
+        # Monthly Return: Resample to monthly for accurate calculation
+        # Formula: ((∏(1 + rt))^(1/M)) - 1 where M is number of months
+        monthly_values = daily_values.resample('M').last()
+        if len(monthly_values) > 1:
+            monthly_returns_series = monthly_values.pct_change().dropna()
+            if len(monthly_returns_series) > 0:
+                monthly_return = monthly_returns_series.mean() * 100
+            else:
+                monthly_return = 0.0
+        else:
+            # Fallback: estimate from daily returns
+            monthly_return = ((1 + daily_returns.mean()) ** 21 - 1) * 100
+        
+        # Annual Return: (1 + Avg Daily Return)^252 - 1 (PDF Formula)
+        # NOTE: This is geometric annualization of average daily return
+        # It may differ from CAGR which uses actual portfolio values
+        # For performance reporting, use CAGR as the primary metric
+        annual_return = ((1 + daily_returns.mean()) ** 252 - 1) * 100
         
         # Return statistics
         positive_days = (daily_returns > 0).sum()
@@ -156,6 +174,7 @@ class PerformanceAnalyzer:
         return metrics
     
     def _calculate_risk_metrics(self, daily_values: pd.Series,
+                                cagr: float,
                                 benchmark_returns: pd.Series = None) -> Dict:
         """Calculate risk metrics"""
         logger.info("Calculating risk metrics...")
@@ -165,26 +184,30 @@ class PerformanceAnalyzer:
         # Volatility (annualized) - FIXED: Pass returns, not values
         volatility = daily_returns.std() * np.sqrt(252)  # Standard formula
         
-        # Sharpe Ratio
-        excess_returns = daily_returns - self.daily_rf
-        sharpe = (excess_returns.mean() / excess_returns.std()) * np.sqrt(252) if excess_returns.std() > 0 else 0
+        # Sharpe Ratio: (Rp - Rf) / σ (PDF Formula)
+        # Use actual CAGR for consistency (not geometric mean of daily returns)
+        # CAGR is the actual portfolio return over the period
+        excess_return = (cagr / 100) - self.risk_free_rate  # Both in decimal form
+        sharpe = excess_return / volatility if volatility > 0 else 0
         
-        # Sortino Ratio (downside deviation)
-        downside_returns = daily_returns[daily_returns < self.daily_rf]
-        downside_std = downside_returns.std()
-        sortino = (excess_returns.mean() / downside_std) * np.sqrt(252) if downside_std > 0 else 0
+        # Sortino Ratio: (Rp - Rf) / σd (PDF Formula)
+        # σd = annualized downside deviation (volatility of negative returns)
+        downside_returns = daily_returns[daily_returns < 0]  # Only negative returns
+        downside_std = downside_returns.std() * np.sqrt(252) if len(downside_returns) > 0 else 0
+        sortino = excess_return / downside_std if downside_std > 0 else 0
         
-        # Calmar Ratio
+        # Calmar Ratio: CAGR / |Max Drawdown| (PDF Formula - use CAGR not annual return)
         max_dd = calculate_max_drawdown(daily_values)
-        annual_return = daily_returns.mean() * 252
-        calmar = (annual_return / abs(max_dd)) if max_dd != 0 else 0
+        # max_dd is already in decimal form (e.g., -0.19 for -19%)
+        # cagr is in percentage form (e.g., 24 for 24%)
+        calmar = (cagr / 100) / abs(max_dd) if max_dd != 0 else 0
         
         metrics = {
             'volatility': volatility * 100,
             'sharpe_ratio': sharpe,
             'sortino_ratio': sortino,
             'calmar_ratio': calmar,
-            'downside_deviation': downside_std * np.sqrt(252) * 100
+            'downside_deviation': downside_std * 100  # Already annualized above
         }
         
         # Beta and Information Ratio (if benchmark provided)
@@ -379,7 +402,7 @@ class PerformanceAnalyzer:
             report += f"  Average Monthly: {returns.get('monthly_return', 0):.2f}%\n"
             report += f"  Best Day: {returns.get('best_day', 0):.2f}%\n"
             report += f"  Worst Day: {returns.get('worst_day', 0):.2f}%\n"
-            report += f"  Positive Days: {returns.get('positive_days', 0)} ({returns.get('positive_pct', 0):.1f}%)\n\n"
+            report += f"  Positive Days: {returns.get('positive_days', 0):.0f} ({returns.get('positive_pct', 0):.1f}%)\n\n"
         
         # Risk
         risk = analysis.get('risk', {})

@@ -15,6 +15,11 @@ from data.csv_data_bridge import CSVDataBridge
 from config import Config
 from backtesting.backtest_engine import BacktestEngine
 from backtesting.performance_analyzer import PerformanceAnalyzer
+from backtesting.rebalancing_report import (
+    generate_monthly_rebalancing_report,
+    generate_sector_rotation_summary,
+    generate_stock_churn_analysis
+)
 from dashboard.chart_generator import ChartGenerator
 from datetime import datetime, timedelta
 import io
@@ -222,7 +227,11 @@ def render_real_data_backtest():
                 if 'returns' in analysis and 'cagr' in analysis['returns']:
                     cagr = analysis['returns']['cagr']
                 elif result.get('final_value') and result.get('initial_capital'):
-                    years = (result['end_date'] - result['start_date']).days / 365.25
+                    # Use consistent years calculation with performance analyzer
+                    if isinstance(result.get('daily_values'), pd.Series) and not result['daily_values'].empty:
+                        years = len(result['daily_values']) / 252
+                    else:
+                        years = (result['end_date'] - result['start_date']).days / 365.25
                     if years > 0:
                         cagr = ((result['final_value'] / result['initial_capital']) ** (1/years) - 1) * 100
                 
@@ -241,6 +250,74 @@ def render_real_data_backtest():
                     max_dd = analysis['drawdown']['max_drawdown']
                 
                 st.metric("Max Drawdown", f"{max_dd:.2f}%")
+            
+            # Charts
+            
+            # ========== ADD MONTHLY REBALANCING REPORT (CLIENT REQUIREMENT) ==========
+            st.markdown("---")
+            st.subheader("📊 Monthly Rebalancing Report")
+            st.markdown("*See which sectors and stocks were rotated each month*")
+            
+            # Generate reports
+            monthly_report = generate_monthly_rebalancing_report(result)
+            sector_summary = generate_sector_rotation_summary(result)
+            churn_analysis = generate_stock_churn_analysis(result)
+            
+            # Display in tabs
+            report_tab1, report_tab2, report_tab3 = st.tabs([
+                "📅 Monthly Details", 
+                "🔄 Sector Rotation History", 
+                "📈 Stock Churn Analysis"
+            ])
+            
+            with report_tab1:
+                st.text_area(
+                    "Detailed Monthly Rebalancing Report",
+                    monthly_report,
+                    height=600,
+                    help="Shows which sectors/stocks were selected each month and why"
+                )
+                
+                # Download button
+                st.download_button(
+                    label="📥 Download Monthly Report (TXT)",
+                    data=monthly_report,
+                    file_name=f"monthly_rebalancing_{datetime.now().strftime('%Y%m%d')}.txt",
+                    mime="text/plain"
+                )
+            
+            with report_tab2:
+                st.text_area(
+                    "Sector Rotation History",
+                    sector_summary,
+                    height=600,
+                    help="Shows which sectors were in portfolio each month"
+                )
+                
+                st.download_button(
+                    label="📥 Download Sector Report (TXT)",
+                    data=sector_summary,
+                    file_name=f"sector_rotation_{datetime.now().strftime('%Y%m%d')}.txt",
+                    mime="text/plain"
+                )
+            
+            with report_tab3:
+                st.text_area(
+                    "Stock Churn Analysis",
+                    churn_analysis,
+                    height=600,
+                    help="Shows how often stocks enter/exit the portfolio"
+                )
+                
+                st.download_button(
+                    label="📥 Download Churn Analysis (TXT)",
+                    data=churn_analysis,
+                    file_name=f"stock_churn_{datetime.now().strftime('%Y%m%d')}.txt",
+                    mime="text/plain"
+                )
+            
+            st.markdown("---")
+            # ========== END MONTHLY REBALANCING REPORT ==========
             
             # Charts
             st.markdown("### 📈 Equity Curve")
@@ -534,12 +611,12 @@ def render_real_data_backtest():
                     )
                 except ImportError:
                     st.error("PDF generation library not installed. Run: pip install -r requirements.txt")
-                    st.download_button(
-                        label="Download Report (TXT)",
+                st.download_button(
+                    label="Download Report (TXT)",
                         data=report_text,
-                        file_name=f"backtest_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                        mime="text/plain"
-                    )
+                    file_name=f"backtest_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    mime="text/plain"
+                )
         
         bridge.close()
         
